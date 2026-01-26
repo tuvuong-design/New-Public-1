@@ -1,0 +1,3038 @@
+# Requested file dump (verbatim)
+
+## package.json
+
+{
+  "name": "videoshare-nextjs",
+  "private": true,
+  "version": "4.3.3",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build && tsc -p worker/tsconfig.json",
+    "start": "next start -p 3000",
+    "worker": "node worker/dist/index.js",
+    "worker:dev": "tsx worker/src/index.ts",
+    "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down -v",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:migrate": "prisma migrate deploy",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "worker:build": "tsc -p worker/tsconfig.json",
+    "package:slim": "bash scripts/package-slim.sh",
+    "package:full": "bash scripts/package-full.sh"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.540.0",
+    "@aws-sdk/s3-request-presigner": "^3.540.0",
+    "@prisma/client": "^5.14.0",
+    "@t3-oss/env-nextjs": "^0.10.1",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.14.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "dotenv": "^16.4.5",
+    "hls.js": "^1.5.17",
+    "ioredis": "^5.4.1",
+    "next": "^14.2.3",
+    "next-auth": "^4.24.7",
+    "openai": "^4.56.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1",
+    "recharts": "^2.12.7",
+    "remark-gfm": "^4.0.0",
+    "tailwind-merge": "^2.4.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.13",
+    "@types/node": "^20.12.12",
+    "@types/react": "^18.2.75",
+    "@types/react-dom": "^18.2.25",
+    "autoprefixer": "^10.4.19",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.3",
+    "postcss": "^8.4.38",
+    "prisma": "^5.14.0",
+    "tailwindcss": "^3.4.4",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
+
+## prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// Viewer preference for sensitive content (PeerTube-like).
+// - SHOW: render normally
+// - BLUR: blur thumbnail/player until user reveals
+// - HIDE: hide in listings; show a warning gate on direct page
+enum SensitiveMode {
+  SHOW
+  BLUR
+  HIDE
+}
+
+enum VideoStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  HIDDEN
+  ERROR
+  DELETED
+}
+
+// Access policy for video visibility (not SEO index).
+// - PUBLIC: visible to everyone
+// - PREMIUM_PLUS: only Premium+ (and owner/admin)
+// - PRIVATE: only owner/admin
+// - VIOLATOR_ONLY: only owner/admin, and interactions locked
+enum VideoAccess {
+  PUBLIC
+  PREMIUM_PLUS
+  PRIVATE
+  VIOLATOR_ONLY
+}
+
+// Membership tiers.
+enum MembershipTier {
+  NONE
+  PREMIUM
+  PREMIUM_PLUS
+}
+
+// Comment moderation visibility.
+enum CommentVisibility {
+  VISIBLE
+  HIDDEN
+  AUTHOR_ONLY
+  DELETED
+}
+
+// Community post types (YouTube-like).
+enum CommunityPostType {
+  TEXT
+  IMAGE
+  GIF
+  POLL
+  YOUTUBE
+  LINK
+}
+
+// NFT
+enum NftVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+}
+
+enum NftListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+}
+
+enum NftAuctionStatus {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum NftExportStatus {
+  NONE
+  PENDING
+  READY
+  EXPORTED
+  FAILED
+}
+
+enum NftMetadataStrategy {
+  PUBLIC_URL
+  IPFS_MEDIA
+}
+
+enum StarHoldStatus {
+  HELD
+  RELEASED
+  SETTLED
+}
+
+
+enum StarTxType {
+  GIFT
+  STARS
+  ADMIN_GRANT
+  ADMIN_DEDUCT
+  BOOST_PURCHASE
+  TOPUP
+  REFUND
+  MEMBERSHIP_PURCHASE
+  NFT_MINT
+  NFT_SALE
+  NFT_EXPORT
+  HOLD_RELEASE
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String?  @unique
+  passwordHash  String?
+  role          Role     @default(USER)
+  image         String?
+
+  // Viewer preference for sensitive videos across the site.
+  sensitiveMode SensitiveMode @default(BLUR)
+
+  // Membership
+  membershipTier       MembershipTier @default(NONE)
+  membershipExpiresAt  DateTime?
+  premiumPlusHideBoostAds Boolean @default(false)
+
+  // Optional: use a minted NFT as avatar
+  avatarNftItemId      String?
+  avatarNftItem        NftItem? @relation("UserAvatarNft", fields: [avatarNftItemId], references: [id], onDelete: SetNull)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  videos        Video[]
+  likes         Like[]
+  comments      Comment[]
+  progress      VideoProgress[]
+
+  starBalance   Int      @default(0)
+  starTx        StarTransaction[]
+
+  deposits      StarDeposit[]
+
+// Reports
+reports      VideoReport[] @relation("ReportReporter")
+reviews      VideoReport[] @relation("ReportReviewer")
+
+// Boost
+boostOrders  BoostOrder[]
+
+  // Subscriptions / Community
+  subscriptionsOut Subscription[] @relation("SubscriptionsOut")
+  subscriptionsIn  Subscription[] @relation("SubscriptionsIn")
+  communityPosts   CommunityPost[]
+
+  // NFT
+  nftCollections   NftCollection[] @relation("NftCollectionCreator")
+  nftItemsOwned    NftItem[] @relation("NftItemOwner")
+  nftListings      NftListing[] @relation("NftListingSeller")
+  nftAuctions      NftAuction[] @relation("NftAuctionSeller")
+  nftBids          NftBid[]
+  nftSalesBought   NftSale[] @relation("NftSaleBuyer")
+  nftSalesSold     NftSale[] @relation("NftSaleSeller")
+  nftExportRequests NftExportRequest[]
+  starHolds        StarHold[]
+  premiumUsage     PremiumBenefitUsage[]
+
+  // Moderation / deletes
+  deletedVideos    Video[] @relation("VideoDeletedBy")
+  moderatedComments Comment[] @relation("CommentModeratedBy")
+  nftEventLogs     NftEventLog[] @relation("NftEventActor")
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  videos      Video[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videos    Video[]
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videoTags VideoTag[]
+}
+
+model VideoTag {
+  videoId String
+  tagId   String
+
+  video   Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, tagId])
+}
+
+model Video {
+  id            String      @id @default(cuid())
+  title         String
+  description   String      @db.Text
+  status        VideoStatus @default(DRAFT)
+
+  // PeerTube-like flag for sensitive content.
+  // This does NOT affect SEO/indexing by default (video can stay PUBLISHED).
+  isSensitive   Boolean     @default(false)
+
+  // Access policy
+  access        VideoAccess @default(PUBLIC)
+
+  // If true, disable interactions (like/comment/share/stars/gifts)
+  interactionsLocked Boolean @default(false)
+
+  durationSec   Int         @default(0)
+  width         Int         @default(0)
+  height        Int         @default(0)
+  sourceBytes   BigInt      @default(0)
+
+  sourceKey     String
+  thumbKey      String?
+  previewKey    String?
+
+  hlsBasePath   String?
+  masterM3u8Key String?
+
+  viewCount     Int         @default(0)
+  likeCount     Int         @default(0)
+  commentCount  Int         @default(0)
+
+  shareCount    Int         @default(0)
+  starCount     Int         @default(0)
+  giftCount     Int         @default(0)
+
+  storyboardKey      String?
+  storyboardFrameW   Int         @default(160)
+  storyboardFrameH   Int         @default(90)
+  storyboardCols     Int         @default(10)
+  storyboardRows     Int         @default(10)
+  storyboardCount    Int         @default(0)
+  storyboardIntervalMs Int       @default(2000)
+
+  externalId    String?     @unique
+  embedUrl      String?     @unique
+
+  authorId      String?
+  author        User?       @relation(fields: [authorId], references: [id])
+
+  deletedAt     DateTime?
+  deletedById   String?
+  deletedBy     User?       @relation("VideoDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  channelId     String?
+  channel       Channel?    @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  categoryId    String?
+  category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  subtitles     Subtitle[]
+  comments      Comment[]
+  likes         Like[]
+  progress      VideoProgress[]
+  tags          VideoTag[]
+  starTx        StarTransaction[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([status, access, createdAt])
+  @@index([categoryId, createdAt])
+  @@index([channelId, createdAt])
+
+  // Full-text index for advanced search/similar videos.
+  // Prisma will map this to a MySQL FULLTEXT index.
+  @@fulltext([title, description])
+
+// Reports / Boost / Metrics
+reports      VideoReport[]
+boostOrders  BoostOrder[]
+metricsDaily VideoMetricDaily[]
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  userId    String?
+  videoId   String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  visibility   CommentVisibility @default(VISIBLE)
+  moderatedAt  DateTime?
+  moderatedById String?
+  moderatedBy  User? @relation("CommentModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+
+  // Super Thanks (gift / stars)
+  isSuperThanks    Boolean  @default(false)
+  superThanksStars Int      @default(0)
+  superThanksQty   Int      @default(1)
+  giftId           String?
+  starTxId         String?  @unique
+
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  video     Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  gift      Gift?   @relation(fields: [giftId], references: [id], onDelete: SetNull)
+  starTx    StarTransaction? @relation(fields: [starTxId], references: [id], onDelete: SetNull)
+
+  @@index([videoId, createdAt])
+  @@index([isSuperThanks, createdAt])
+}
+
+
+model VideoProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  seconds   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+model SiteConfig {
+  id                    Int      @id @default(1)
+  siteName              String   @default("VideoShare")
+  defaultDescription    String   @default("VideoShare - HLS + R2")
+  logoUrl               String?
+
+  gaEnabled             Boolean  @default(false)
+  gaMeasurementId       String?
+  gtmContainerId        String?
+  googleVerification    String?
+
+  indexNowEnabled       Boolean  @default(false)
+  indexNowKey           String?
+
+  oneSignalEnabled      Boolean  @default(false)
+  oneSignalAppId        String?
+  oneSignalSafariWebId  String?
+  oneSignalRestApiKey   String?
+
+  feedTikTokEnabled      Boolean  @default(false)
+  storyboardEnabled      Boolean  @default(false)
+
+  // Default viewer mode for sensitive videos (used for guests / fallback).
+  sensitiveDefaultMode   SensitiveMode @default(BLUR)
+
+  // Treasury user for collecting fees (optional).
+  treasuryUserId         String?
+
+  // Membership pricing (stars).
+  premiumPriceStars      Int      @default(500)
+  premiumDurationDays    Int      @default(30)
+  premiumPlusPriceStars  Int      @default(900)
+  premiumPlusDurationDays Int     @default(30)
+  premiumPlusFreeBoostsPerMonth Int @default(4)
+
+  // NFT config
+  nftCollectionMintFeeStars Int @default(50)
+  nftItemMintFeeStars       Int @default(10)
+  nftPlatformFeeBps         Int @default(100) // 1%
+  nftDefaultRoyaltyBps      Int @default(500) // 5%
+  nftMaxRoyaltyBps          Int @default(1000) // 10%
+  nftUnverifiedFirstSaleHoldDays Int @default(10)
+  nftExportBaseFeeStars     Int @default(0)
+  nftExportUploadMediaFeePerGbStars Int @default(0)
+  nftExportContractChangeDelayHours Int @default(24)
+  nftExportMirrorMode       String @default("READ_ONLY")
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model HlsConfig {
+  id             Int      @id @default(1)
+  segmentSeconds Int      @default(15)
+  packaging      String   @default("SINGLE_FILE")
+  ladderJson     String   @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Subtitle {
+  id          String   @id @default(cuid())
+  videoId     String
+  lang        String   @default("vi")
+  vttKey      String
+  provider    String   @default("openai-whisper")
+  createdAt   DateTime @default(now())
+
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, lang])
+}
+
+model ApiSource {
+  id          String   @id @default(cuid())
+  name        String
+  baseUrl     String
+  apiKey      String?
+  prefix      String   @unique
+  enabled     Boolean  @default(true)
+  mappingJson String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdPlacement {
+  id          Int      @id @default(autoincrement())
+  scope       String
+  enabled     Boolean  @default(false)
+
+  // Device / bot targeting (default: show on mobile/tablet only; hide for bots).
+  showOnDesktop Boolean @default(false)
+  showOnTablet  Boolean @default(true)
+  showOnMobile  Boolean @default(true)
+  hideForBots   Boolean @default(true)
+
+  everyN      Int      @default(6)
+  html        String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope])
+}
+
+model Gift {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  icon      String?
+  starsCost Int      @default(1)
+  active    Boolean  @default(true)
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  starTx    StarTransaction[]
+}
+
+model StarTransaction {
+  id        String     @id @default(cuid())
+  userId    String
+  delta     Int        // (+) admin grant / (-) user spend
+  type      StarTxType @default(STARS)
+  quantity  Int        @default(1)
+  stars     Int        @default(0) // absolute stars changed (for reporting)
+
+  videoId   String?
+  giftId    String?
+  depositId String?    @unique
+  note      String?    @db.Text
+  createdAt DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video?     @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  gift      Gift?      @relation(fields: [giftId], references: [id], onDelete: SetNull)
+
+  deposit   StarDeposit? @relation(fields: [depositId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([videoId, createdAt])
+  @@index([giftId, createdAt])
+}
+
+// =============================
+// Payments / Stars Topup
+// =============================
+
+enum Chain {
+  SOLANA
+  ETHEREUM
+  POLYGON
+  BSC
+  BASE
+  TRON
+}
+
+enum PaymentProvider {
+  MANUAL
+  HELIUS
+  QUICKNODE
+  ALCHEMY
+  TRONGRID
+}
+
+enum DepositStatus {
+  CREATED
+  SUBMITTED
+  OBSERVED
+  CONFIRMED
+  CREDITED
+  UNMATCHED
+  NEEDS_REVIEW
+  FAILED
+  REFUNDED
+}
+
+model Token {
+  id              String   @id @default(cuid())
+  chain           Chain
+  symbol          String
+  name            String
+  decimals        Int      @default(6)
+  // EVM: contract address (ERC20), TRON: TRC20 contract, SOL: mint address
+  contractAddress String?
+  isNative        Boolean  @default(false)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  packages        StarTopupPackage[]
+  deposits        StarDeposit[]
+
+  @@index([chain, symbol])
+  @@unique([chain, symbol, contractAddress])
+}
+
+model CustodialAddress {
+  id        String   @id @default(cuid())
+  chain     Chain
+  address   String
+  label     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deposits  StarDeposit[]
+
+  @@index([chain, active])
+  @@unique([chain, address])
+}
+
+model StarTopupPackage {
+  id                String   @id @default(cuid())
+  name              String
+  chain             Chain
+  tokenId           String
+  expectedAmount    Decimal  @db.Decimal(36, 18)
+  stars             Int
+  active            Boolean  @default(true)
+  sort              Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  token             Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  deposits          StarDeposit[]
+
+  @@index([chain, active])
+}
+
+model StarDeposit {
+  id                 String          @id @default(cuid())
+  userId             String?
+  chain              Chain
+  tokenId            String?
+  packageId          String?
+  custodialAddressId String
+  status             DepositStatus   @default(CREATED)
+
+  // expected vs actual (Decimal)
+  expectedAmount     Decimal?        @db.Decimal(36, 18)
+  actualAmount       Decimal?        @db.Decimal(36, 18)
+
+  // Solana: memo để auto-match depositId
+  memo               String?
+
+  txHash             String?         @db.VarChar(128)
+  provider           PaymentProvider @default(MANUAL)
+  failureReason      String?
+
+  confirmedAt        DateTime?
+  creditedAt         DateTime?
+  refundedAt         DateTime?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  token              Token?          @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+  package            StarTopupPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  custodialAddress   CustodialAddress @relation(fields: [custodialAddressId], references: [id], onDelete: Cascade)
+
+  events             StarDepositEvent[]
+  webhooks           WebhookAuditLog[]
+
+  @@index([status, access, createdAt])
+  @@index([chain, status, createdAt])
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
+model StarDepositEvent {
+  id        String   @id @default(cuid())
+  depositId String
+  type      String
+  message   String?
+  dataJson  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  deposit   StarDeposit @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  @@index([depositId, createdAt])
+}
+
+model WebhookAuditLog {
+  id            String          @id @default(cuid())
+  depositId     String?
+  provider      PaymentProvider
+  chain         Chain?
+  endpoint      String
+  ip            String?
+  headersJson   String?         @db.Text
+  payloadJson   String          @db.Text
+  sha256        String
+  status        String          @default("RECEIVED")
+  failureReason String?
+  createdAt     DateTime        @default(now())
+
+  deposit       StarDeposit?    @relation(fields: [depositId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, sha256])
+  @@index([provider, createdAt])
+  @@index([depositId, createdAt])
+}
+
+model PaymentConfig {
+  id                     Int      @id @default(1)
+  strictMode             Boolean  @default(false)
+  // Nếu bật: webhook phải pass đúng signature của provider ("provider accuracy mode")
+  providerAccuracyMode   Boolean  @default(false)
+  // 0.5% = 50 bps (default)
+  toleranceBps           Int      @default(50)
+  submittedStaleMinutes  Int      @default(10)
+  reconcileEveryMs       Int      @default(120000)
+  // strict per chain/provider allowlist. Example:
+  // { "SOLANA": ["HELIUS","QUICKNODE"], "ETHEREUM": ["ALCHEMY","QUICKNODE"] }
+  allowlistJson          String   @db.Text
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model PaymentProviderSecret {
+  id        String          @id @default(cuid())
+  env       String          // APP_ENV (dev|prod)
+  provider  PaymentProvider
+  name      String
+  value     String          @db.Text
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([env, provider, name])
+  @@index([env, provider, active])
+}
+
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+  REJECTED
+}
+
+enum BoostPlanType {
+  DURATION
+  TARGET_INTERACTIONS
+}
+
+enum BoostStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+  EXPIRED
+}
+
+model VideoReport {
+  id         String       @id @default(cuid())
+  videoId    String
+  reporterId String?
+  reason     String
+  details    String?      @db.Text
+  status     ReportStatus @default(OPEN)
+
+  ipHash     String?
+  reviewerId String?
+  reviewedAt DateTime?
+
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  video      Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  reporter   User?        @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  reviewer   User?        @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([videoId, createdAt])
+  @@index([status, access, createdAt])
+  @@index([reporterId, createdAt])
+  @@index([videoId, ipHash])
+}
+
+model VideoMetricDaily {
+  id        String   @id @default(cuid())
+  videoId   String
+  day       DateTime // store day-start UTC
+  views     Int      @default(0)
+  likes     Int      @default(0)
+  shares    Int      @default(0)
+  comments  Int      @default(0)
+  stars     Int      @default(0)
+  gifts     Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day])
+  @@index([day])
+  @@index([videoId, day])
+}
+
+model BoostPlan {
+  id             String        @id @default(cuid())
+  name           String        @unique
+  type           BoostPlanType @default(DURATION)
+
+  durationDays   Int?          // for DURATION
+  targetViews    Int?          // for TARGET_INTERACTIONS
+  targetLikes    Int?
+  targetShares   Int?
+  targetComments Int?
+  targetStars    Int?
+  targetGifts    Int?
+
+  priceStars     Int           @default(100)
+  active         Boolean       @default(true)
+  sort           Int           @default(0)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  orders         BoostOrder[]
+}
+
+model BoostOrder {
+  id           String      @id @default(cuid())
+  userId       String
+  videoId      String
+  planId       String
+  status       BoostStatus @default(ACTIVE)
+
+  startAt      DateTime    @default(now())
+  endAt        DateTime?
+  priceStars   Int         @default(0)
+
+  // Baseline at boost start
+  baseViews    Int         @default(0)
+  baseLikes    Int         @default(0)
+  baseShares   Int         @default(0)
+  baseComments Int         @default(0)
+  baseStars    Int         @default(0)
+  baseGifts    Int         @default(0)
+
+  // Counters during boost window (incremental)
+  statViews    Int         @default(0)
+  statLikes    Int         @default(0)
+  statShares   Int         @default(0)
+  statComments Int         @default(0)
+  statStars    Int         @default(0)
+  statGifts    Int         @default(0)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video        Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  plan         BoostPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([status, startAt])
+  @@index([videoId, status])
+  @@index([userId, status])
+}
+
+
+// =============================
+// Subscriptions + Community
+// =============================
+
+model Subscription {
+  id            String   @id @default(cuid())
+  subscriberId  String
+  channelUserId String
+  createdAt     DateTime @default(now())
+
+  subscriber    User @relation("SubscriptionsOut", fields: [subscriberId], references: [id], onDelete: Cascade)
+  channelUser   User @relation("SubscriptionsIn", fields: [channelUserId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriberId, channelUserId])
+  @@index([channelUserId, createdAt])
+  @@index([subscriberId, createdAt])
+}
+
+model CommunityPost {
+  id          String            @id @default(cuid())
+  authorId    String
+  type        CommunityPostType @default(TEXT)
+
+  text        String?           @db.Text
+  mediaUrl    String?
+  linkUrl     String?
+  youtubeUrl  String?
+
+  pollQuestion String?          @db.Text
+
+  // Soft delete (do not break SEO/history, allow future moderation).
+  isDeleted   Boolean           @default(false)
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  author      User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  pollOptions CommunityPollOption[]
+  pollVotes   CommunityPollVote[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model CommunityPollOption {
+  id        String   @id @default(cuid())
+  postId    String
+  text      String
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  votes     CommunityPollVote[]
+
+  @@index([postId, sort])
+}
+
+model CommunityPollVote {
+  id        String   @id @default(cuid())
+  postId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  option    CommunityPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId, createdAt])
+}
+
+// =============================
+// Membership usage
+// =============================
+
+model PremiumBenefitUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  month     String   // YYYY-MM
+  freeBoostsUsed Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@index([month])
+}
+
+// =============================
+// NFT Marketplace (internal)
+// =============================
+
+model NftCollection {
+  id        String   @id @default(cuid())
+  creatorId String
+  title     String
+  description String @db.Text
+  imageKey  String?
+
+  royaltyBps Int @default(500)
+  creatorRoyaltySharePct Int @default(50) // 20/50/80
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator   User @relation("NftCollectionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  items     NftItem[]
+
+  @@index([creatorId, createdAt])
+}
+
+model NftItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  videoId      String?
+
+  ownerId      String
+
+  name         String
+  description  String @db.Text
+  imageKey     String?
+  animationUrl String?
+
+  verificationStatus NftVerificationStatus @default(UNVERIFIED)
+
+  exportStatus NftExportStatus @default(NONE)
+  exportChain  Chain?
+  marketplaceFrozen Boolean @default(false)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  collection   NftCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  video        Video? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  owner        User @relation("NftItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  listings     NftListing[]
+  auctions     NftAuction[]
+  sales        NftSale[]
+  exportRequests NftExportRequest[]
+
+  @@index([ownerId, createdAt])
+  @@index([collectionId, createdAt])
+  @@index([videoId])
+  @@unique([videoId])
+}
+
+model NftListing {
+  id        String          @id @default(cuid())
+  itemId    String
+  sellerId  String
+  priceStars Int
+  status    NftListingStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  soldAt    DateTime?
+  cancelledAt DateTime?
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  sale      NftSale?
+
+  @@index([status, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([itemId, status])
+}
+
+model NftAuction {
+  id        String          @id @default(cuid())
+  itemId    String
+  sellerId  String
+
+  startPriceStars Int
+  reservePriceStars Int?
+
+  startAt   DateTime @default(now())
+  endAt     DateTime
+  status    NftAuctionStatus @default(ACTIVE)
+
+  highestBidId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftAuctionSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  bids      NftBid[]
+  highestBid NftBid? @relation("AuctionHighestBid", fields: [highestBidId], references: [id], onDelete: SetNull)
+  sale      NftSale?
+
+  @@index([status, endAt])
+  @@index([sellerId, createdAt])
+  @@index([itemId, status])
+}
+
+model NftBid {
+  id        String   @id @default(cuid())
+  auctionId String
+  bidderId  String
+  amountStars Int
+  holdId    String? @unique
+  createdAt DateTime @default(now())
+
+  auction   NftAuction @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  bidder    User @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  hold      StarHold? @relation(fields: [holdId], references: [id], onDelete: SetNull)
+
+  @@index([auctionId, createdAt])
+  @@index([bidderId, createdAt])
+}
+
+model StarHold {
+  id        String        @id @default(cuid())
+  userId    String
+  amountStars Int
+  status    StarHoldStatus @default(HELD)
+  reason    String
+  refType   String?
+  refId     String?
+  releaseAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, releaseAt])
+  @@index([userId, createdAt])
+  @@index([refType, refId])
+}
+
+model NftSale {
+  id        String   @id @default(cuid())
+  itemId    String
+  buyerId   String
+  sellerId  String
+  priceStars Int
+
+  platformFeeStars Int
+  royaltyStars     Int
+  creatorRoyaltyStars Int
+  authorRoyaltyStars  Int
+  sellerProceedsStars Int
+
+  listingId String?
+  auctionId String?
+
+  createdAt DateTime @default(now())
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  buyer     User @relation("NftSaleBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftSaleSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  listing   NftListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  auction   NftAuction? @relation(fields: [auctionId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([sellerId, createdAt])
+  @@index([buyerId, createdAt])
+}
+
+model NftExportRequest {
+  id        String   @id @default(cuid())
+  itemId    String
+  userId    String
+
+  chain     Chain
+  metadataStrategy NftMetadataStrategy @default(PUBLIC_URL)
+  includeVideoInIpfs Boolean @default(false)
+
+  status    NftExportStatus @default(PENDING)
+  tokenIdHex String?
+  tokenUri  String?
+  contractAddress String?
+
+  txHash    String?
+  mintedRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([itemId, createdAt])
+}
+
+model NftChainContract {
+  id        String @id @default(cuid())
+  chain     Chain  @unique
+  address   String
+  isPrimary Boolean @default(false)
+
+  pendingAddress String?
+  pendingApplyAt DateTime?
+  pendingSetById String?
+  pendingSetBy   User? @relation(fields: [pendingSetById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model NftEventLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  dataJson  String   @db.Text
+  createdAt DateTime @default(now())
+
+  actor     User? @relation("NftEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+}
+
+## next.config.mjs
+
+/** @type {import('next').NextConfig} */
+const nextConfig = { reactStrictMode: true };
+export default nextConfig;
+
+## tsconfig.json
+
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["dom", "dom.iterable", "es2022"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "worker/dist"]
+}
+
+## worker/tsconfig.json
+
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["es2022"],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}
+
+## worker/src/index.ts
+
+import "dotenv/config";
+import { Queue, Worker, QueueScheduler } from "bullmq";
+import { connection, paymentsQueue } from "./queues";
+import { processVideo } from "./jobs/processVideo";
+import { encodeHls } from "./jobs/encodeHls";
+import { syncApiSource } from "./jobs/syncApiSource";
+import { generateSubtitles } from "./jobs/subtitles";
+import { prisma } from "./prisma";
+import { flags } from "./env";
+
+import { processWebhookAuditJob } from "./jobs/payments/processWebhookAudit";
+import { reconcileDepositJob } from "./jobs/payments/reconcileDeposit";
+import { reconcileStaleScanJob } from "./jobs/payments/reconcileStaleScan";
+import { retryDeadLettersScanJob } from "./jobs/payments/retryDeadLettersScan";
+import { paymentsAlertCronJob } from "./jobs/payments/alertCron";
+import { env } from "./env";
+
+function log(...args: any[]) {
+  console.log(new Date().toISOString(), ...args);
+}
+
+const qEncode = new Queue("encodeHls", { connection });
+const qSubs = new Queue("subtitles", { connection });
+
+// Scheduler for repeatable/delayed jobs
+const schedulerPayments = new QueueScheduler("payments", { connection });
+
+async function ensurePaymentsRepeatableJobs() {
+  // Repeatable jobs are de-duplicated by (name + repeat opts). These are safe to call on every boot.
+  await paymentsQueue.add(
+    "reconcile_stale_scan",
+    {},
+    {
+      repeat: { every: env.PAYMENTS_RECONCILE_EVERY_MS },
+      jobId: "reconcile_stale_scan",
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    },
+  );
+
+  await paymentsQueue.add(
+    "retry_dead_letters_scan",
+    {},
+    {
+      repeat: { every: 2 * 60 * 1000 },
+      jobId: "retry_dead_letters_scan",
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    },
+  );
+
+  await paymentsQueue.add(
+    "alert_cron",
+    {},
+    {
+      repeat: { every: 15 * 60 * 1000 },
+      jobId: "alert_cron",
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    },
+  );
+}
+
+const workerProcessVideo = new Worker(
+  "processVideo",
+  async (job) => {
+    const { videoId } = job.data as { videoId: string };
+    log("processVideo", videoId);
+    await processVideo(videoId);
+    await qEncode.add("encode", { videoId }, { removeOnComplete: true, removeOnFail: 100 });
+    return { ok: true };
+  },
+  { connection, concurrency: 2 }
+);
+
+const workerEncodeHls = new Worker(
+  "encodeHls",
+  async (job) => {
+    const { videoId } = job.data as { videoId: string };
+    log("encodeHls", videoId);
+    const out = await encodeHls(videoId);
+
+    if (flags.subtitlesAuto) {
+      await qSubs.add("subtitle", { videoId, lang: "vi" }, { removeOnComplete: true, removeOnFail: 100 });
+    }
+
+    return out;
+  },
+  { connection, concurrency: 1 }
+);
+
+const workerSyncApi = new Worker(
+  "syncApiSource",
+  async (job) => {
+    const { apiSourceId } = job.data as { apiSourceId: string };
+    log("syncApiSource", apiSourceId);
+    return syncApiSource(apiSourceId);
+  },
+  { connection, concurrency: 1 }
+);
+
+const workerSubtitles = new Worker(
+  "subtitles",
+  async (job) => {
+    const { videoId, lang } = job.data as { videoId: string; lang: string };
+    log("subtitles", videoId, lang);
+    return generateSubtitles(videoId, lang);
+  },
+  { connection, concurrency: 1 }
+);
+
+const workerPayments = new Worker(
+  "payments",
+  async (job) => {
+    switch (job.name) {
+      case "process_webhook_audit":
+      case "processWebhookAudit": {
+        const { auditLogId } = job.data as { auditLogId: string };
+        log("payments.process_webhook_audit", auditLogId);
+        await processWebhookAuditJob(auditLogId);
+        return { ok: true };
+      }
+      case "reconcile_deposit":
+      case "reconcileDeposit": {
+        const { depositId } = job.data as { depositId: string };
+        log("payments.reconcile_deposit", depositId);
+        await reconcileDepositJob(depositId);
+        return { ok: true };
+      }
+      case "reconcile_stale_scan": {
+        log("payments.reconcile_stale_scan");
+        return reconcileStaleScanJob();
+      }
+      case "retry_dead_letters_scan": {
+        log("payments.retry_dead_letters_scan");
+        return retryDeadLettersScanJob();
+      }
+      case "alert_cron": {
+        log("payments.alert_cron");
+        return paymentsAlertCronJob();
+      }
+      default:
+        return { ok: true };
+    }
+  },
+  { connection, concurrency: 5 },
+);
+
+
+const workerVerify = new Worker(
+  "verify",
+  async (job) => {
+    if (job.name !== "ping") return { ok: true };
+    return { pong: true, ts: Date.now() };
+  },
+  { connection, concurrency: 1 }
+);
+
+for (const w of [workerProcessVideo, workerEncodeHls, workerSyncApi, workerSubtitles, workerPayments, workerVerify]) {
+  w.on("failed", (job, err) => log("FAILED", w.name, job?.id, err?.message));
+  w.on("completed", (job) => log("COMPLETED", w.name, job.id));
+}
+
+ensurePaymentsRepeatableJobs().catch((e) => log("ensurePaymentsRepeatableJobs error", e?.message || e));
+
+process.on("SIGINT", async () => {
+  log("SIGINT closing...");
+  await Promise.all([
+    workerProcessVideo.close(),
+    workerEncodeHls.close(),
+    workerSyncApi.close(),
+    workerSubtitles.close(),
+    workerPayments.close(),
+    workerVerify.close(),
+  ]);
+  await Promise.all([qEncode.close(), qSubs.close(), paymentsQueue.close(), schedulerPayments.close()]);
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+## PAYMENTS: lib/payments/**
+
+
+### lib/payments/config.ts
+
+import { prisma } from "@/lib/prisma";
+import { env } from "@/lib/env";
+import type { Chain, PaymentProvider } from "@prisma/client";
+
+export type ProviderAllowlist = Partial<Record<Chain, PaymentProvider[]>>;
+
+export const DEFAULT_ALLOWLIST: ProviderAllowlist = {
+  SOLANA: ["HELIUS", "QUICKNODE"],
+  ETHEREUM: ["ALCHEMY", "QUICKNODE"],
+  POLYGON: ["ALCHEMY", "QUICKNODE"],
+  BSC: ["ALCHEMY", "QUICKNODE"],
+  BASE: ["ALCHEMY", "QUICKNODE"],
+  TRON: ["TRONGRID"],
+};
+
+export async function getOrInitPaymentConfig() {
+  const existing = await prisma.paymentConfig.findUnique({ where: { id: 1 } });
+  if (existing) return existing;
+  return prisma.paymentConfig.create({
+    data: {
+      id: 1,
+      strictMode: false,
+      toleranceBps: env.PAYMENTS_TOLERANCE_BPS,
+      submittedStaleMinutes: env.PAYMENTS_SUBMITTED_STALE_MINUTES,
+      reconcileEveryMs: env.PAYMENTS_RECONCILE_EVERY_MS,
+      allowlistJson: JSON.stringify(DEFAULT_ALLOWLIST),
+    },
+  });
+}
+
+export function parseAllowlist(json: string | null | undefined): ProviderAllowlist {
+  if (!json) return { ...DEFAULT_ALLOWLIST };
+  try {
+    const data = JSON.parse(json) as ProviderAllowlist;
+    return data;
+  } catch {
+    return { ...DEFAULT_ALLOWLIST };
+  }
+}
+
+export async function getProviderSecret(provider: PaymentProvider, name: string) {
+  const envName = env.APP_ENV;
+  const row = await prisma.paymentProviderSecret.findFirst({
+    where: { env: envName, provider, name, active: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (row?.value) return row.value;
+
+  // Fallback env vars (legacy/simple)
+  if (provider === "ALCHEMY" && name === "webhookSigningKey") return env.ALCHEMY_WEBHOOK_SIGNING_KEY;
+  if (provider === "QUICKNODE" && name === "webhookSecret") return env.QUICKNODE_WEBHOOK_SECRET;
+  if (provider === "HELIUS" && name === "webhookSecret") return env.HELIUS_WEBHOOK_SECRET;
+
+  return "";
+}
+
+### lib/payments/credit.ts
+
+import { prisma } from "@/lib/prisma";
+import type { StarDeposit } from "@prisma/client";
+
+export async function creditDepositStars(depositId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const dep = await tx.starDeposit.findUnique({ where: { id: depositId }, include: { package: true, user: true } });
+    if (!dep) throw new Error("DEPOSIT_NOT_FOUND");
+    if (!dep.userId) {
+      await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "UNMATCHED", failureReason: dep.failureReason || "no-user" } });
+      return { ok: false as const, status: "UNMATCHED" };
+    }
+    if (dep.status === "CREDITED") return { ok: true as const, status: "CREDITED" };
+
+    const existingTx = await tx.starTransaction.findUnique({ where: { depositId: dep.id } });
+    if (existingTx) {
+      await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "CREDITED", creditedAt: dep.creditedAt || new Date() } });
+      return { ok: true as const, status: "CREDITED" };
+    }
+
+    const stars = dep.package?.stars || 0;
+    if (stars <= 0) {
+      await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "NEEDS_REVIEW", failureReason: "missing-package-stars" } });
+      return { ok: false as const, status: "NEEDS_REVIEW" };
+    }
+
+    await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { increment: stars } } });
+    await tx.starTransaction.create({
+      data: {
+        userId: dep.userId,
+        delta: stars,
+        stars,
+        type: "TOPUP",
+        depositId: dep.id,
+        note: `${reason}\nchain=${dep.chain}\nexpected=${dep.expectedAmount?.toString() || ""}\nactual=${dep.actualAmount?.toString() || ""}`,
+      },
+    });
+
+    await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "CREDITED", creditedAt: new Date() } });
+    await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "CREDITED", message: `Credited ${stars} stars` } });
+
+    return { ok: true as const, status: "CREDITED", stars };
+  });
+}
+
+export async function refundDepositStars(depositId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const dep = await tx.starDeposit.findUnique({ where: { id: depositId }, include: { user: true } });
+    if (!dep) throw new Error("DEPOSIT_NOT_FOUND");
+    if (!dep.userId) throw new Error("NO_USER");
+
+    const st = await tx.starTransaction.findUnique({ where: { depositId: dep.id } });
+    if (!st) {
+      await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "REFUNDED", refundedAt: new Date() } });
+      await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "REFUND_NO_TX", message: "Refund marked without existing credit tx" } });
+      return { ok: true as const, status: "REFUNDED" };
+    }
+
+    // refund = deduct stars
+    const refundStars = Math.abs(st.delta);
+    await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { decrement: refundStars } } });
+    await tx.starTransaction.create({
+      data: {
+        userId: dep.userId,
+        delta: -refundStars,
+        stars: refundStars,
+        type: "REFUND",
+        note: `${reason}\nrefOfDeposit=${dep.id}`,
+      },
+    });
+
+    await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "REFUNDED", refundedAt: new Date() } });
+    await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "REFUNDED", message: `Refunded ${refundStars} stars` } });
+
+    return { ok: true as const, status: "REFUNDED", stars: refundStars };
+  });
+}
+
+### lib/payments/csv.ts
+
+export type CsvColumn<T> = {
+  key: string;
+  header: string;
+  value: (row: T) => any;
+};
+
+function escapeCsvCell(v: any): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  // Quote if it contains comma, quote, or newline.
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function toCsv<T>(rows: T[], columns: CsvColumn<T>[]) {
+  const header = columns.map((c) => escapeCsvCell(c.header)).join(",");
+  const lines = rows.map((r) => columns.map((c) => escapeCsvCell(c.value(r))).join(","));
+  return [header, ...lines].join("\n");
+}
+
+export function csvResponse(filename: string, csv: string) {
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename=\"${filename}\"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
+### lib/payments/explorer.ts
+
+import type { Chain } from "@prisma/client";
+
+export function txExplorerUrl(chain: Chain, txHash: string) {
+  const h = encodeURIComponent(txHash);
+  switch (chain) {
+    case "SOLANA":
+      return `https://solscan.io/tx/${h}`;
+    case "ETHEREUM":
+      return `https://etherscan.io/tx/${h}`;
+    case "POLYGON":
+      return `https://polygonscan.com/tx/${h}`;
+    case "BSC":
+      return `https://bscscan.com/tx/${h}`;
+    case "BASE":
+      return `https://basescan.org/tx/${h}`;
+    case "TRON":
+      return `https://tronscan.org/#/transaction/${h}`;
+    default:
+      return "";
+  }
+}
+
+export function addressExplorerUrl(chain: Chain, address: string) {
+  const a = encodeURIComponent(address);
+  switch (chain) {
+    case "SOLANA":
+      return `https://solscan.io/account/${a}`;
+    case "ETHEREUM":
+      return `https://etherscan.io/address/${a}`;
+    case "POLYGON":
+      return `https://polygonscan.com/address/${a}`;
+    case "BSC":
+      return `https://bscscan.com/address/${a}`;
+    case "BASE":
+      return `https://basescan.org/address/${a}`;
+    case "TRON":
+      return `https://tronscan.org/#/address/${a}`;
+    default:
+      return "";
+  }
+}
+
+### lib/payments/inferChain.ts
+
+import type { Chain } from "@prisma/client";
+
+export function inferChainFromAlchemy(payload: any): Chain | null {
+  const net = payload?.event?.network || payload?.network || payload?.data?.network || payload?.webhook?.network;
+  if (typeof net !== "string") return null;
+  const n = net.toLowerCase();
+  if (n.includes("eth")) return "ETHEREUM";
+  if (n.includes("polygon") || n.includes("matic")) return "POLYGON";
+  if (n.includes("bsc") || n.includes("binance")) return "BSC";
+  if (n.includes("base")) return "BASE";
+  return null;
+}
+
+export function inferChainFromQuicknode(payload: any): Chain | null {
+  const net = payload?.network || payload?.data?.network || payload?.event?.network;
+  if (typeof net !== "string") return null;
+  const n = net.toLowerCase();
+  if (n.includes("sol")) return "SOLANA";
+  if (n.includes("eth")) return "ETHEREUM";
+  if (n.includes("polygon") || n.includes("matic")) return "POLYGON";
+  if (n.includes("bsc") || n.includes("binance")) return "BSC";
+  if (n.includes("base")) return "BASE";
+  if (n.includes("tron")) return "TRON";
+  return null;
+}
+
+### lib/payments/providerVerify.ts
+
+import crypto from "crypto";
+import type { PaymentProvider } from "@prisma/client";
+import { getProviderSecret } from "@/lib/payments/config";
+
+export async function verifyWebhookSignature(opts: {
+  provider: PaymentProvider;
+  rawBody: string;
+  headers: Headers;
+}): Promise<{ ok: boolean; reason?: string }> {
+  const { provider, rawBody, headers } = opts;
+
+  // NOTE: Mỗi provider có chuẩn signature khác nhau; chúng ta implement theo mẫu phổ biến.
+  // Nếu user dùng proxy/transform, hãy tắt providerAccuracyMode hoặc cập nhật logic.
+
+  if (provider === "ALCHEMY") {
+    const sig = headers.get("x-alchemy-signature") || "";
+    const key = await getProviderSecret("ALCHEMY", "webhookSigningKey");
+    if (!key) return { ok: true, reason: "missing-secret" }; // fail-open if not configured
+    const digest = crypto.createHmac("sha256", key).update(rawBody).digest("hex");
+    return { ok: timingSafeEqualHex(sig, digest), reason: "alchemy" };
+  }
+
+  if (provider === "QUICKNODE") {
+    const sig = headers.get("x-quicknode-signature") || headers.get("x-qn-signature") || "";
+    const secret = await getProviderSecret("QUICKNODE", "webhookSecret");
+    if (!secret) return { ok: true, reason: "missing-secret" };
+    const digest = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+    return { ok: timingSafeEqualHex(sig, digest), reason: "quicknode" };
+  }
+
+  if (provider === "HELIUS") {
+    // Helius: thường dùng `authorization: Bearer <secret>` hoặc custom header.
+    const bearer = headers.get("authorization") || "";
+    const secret = await getProviderSecret("HELIUS", "webhookSecret");
+    if (!secret) return { ok: true, reason: "missing-secret" };
+    const ok = bearer === `Bearer ${secret}` || headers.get("x-helius-secret") === secret;
+    return { ok, reason: "helius" };
+  }
+
+  // TRONGRID: không có standard signature bắt buộc. Có thể dùng IP allowlist...
+  return { ok: true };
+}
+
+function timingSafeEqualHex(a: string, b: string) {
+  try {
+    const aa = Buffer.from(a, "hex");
+    const bb = Buffer.from(b, "hex");
+    if (aa.length !== bb.length) return false;
+    return crypto.timingSafeEqual(aa, bb);
+  } catch {
+    return false;
+  }
+}
+
+### lib/payments/rateLimit.ts
+
+import { getRedis } from "@/lib/redis";
+
+export async function rateLimitRedis(key: string, limit: number, windowSeconds: number) {
+  const redis = getRedis();
+  if (!redis) return { ok: true, remaining: limit - 1 };
+  const k = `videoshare:rl:${key}`;
+  try {
+    const count = await redis.incr(k);
+    if (count === 1) {
+      await redis.expire(k, Math.max(1, Math.floor(windowSeconds)));
+    }
+    const remaining = Math.max(0, limit - count);
+    return { ok: count <= limit, remaining };
+  } catch {
+    // Fail open
+    return { ok: true, remaining: limit - 1 };
+  }
+}
+
+### lib/payments/tolerance.ts
+
+import { Prisma } from "@prisma/client";
+
+export function withinTolerance(expected: Prisma.Decimal, actual: Prisma.Decimal, toleranceBps: number) {
+  if (toleranceBps <= 0) return expected.equals(actual);
+  const tol = expected.mul(toleranceBps).div(10000);
+  const min = expected.sub(tol);
+  const max = expected.add(tol);
+  return actual.greaterThanOrEqualTo(min) && actual.lessThanOrEqualTo(max);
+}
+
+### lib/payments/webhookIngest.ts
+
+import crypto from "crypto";
+import { prisma } from "@/lib/prisma";
+import type { Chain, PaymentProvider } from "@prisma/client";
+import { getOrInitPaymentConfig, parseAllowlist } from "@/lib/payments/config";
+import { rateLimitRedis } from "@/lib/payments/rateLimit";
+import { verifyWebhookSignature } from "@/lib/payments/providerVerify";
+import { queues } from "@/lib/queues";
+
+export async function ingestWebhook(params: {
+  provider: PaymentProvider;
+  chain: Chain | null;
+  endpoint: string;
+  ip: string | null;
+  headers: Headers;
+  rawBody: string;
+}) {
+  const { provider, chain, endpoint, ip, headers, rawBody } = params;
+  const cfg = await getOrInitPaymentConfig();
+  const allowlist = parseAllowlist(cfg.allowlistJson);
+
+  // Rate limit: 120 req/min/provider/ip
+  const rl = await rateLimitRedis(`wh:${provider}:${ip || "unknown"}`, 120, 60);
+  if (!rl.ok) {
+    return { ok: false as const, status: 429, message: "rate-limited" };
+  }
+
+  // Strict per chain/provider
+  if (cfg.strictMode && chain) {
+    const allowed = allowlist[chain] || [];
+    if (!allowed.includes(provider)) {
+      await prisma.webhookAuditLog.create({
+        data: {
+          provider,
+          chain,
+          endpoint,
+          ip: ip || undefined,
+          headersJson: safeJson(headersToObject(headers)),
+          payloadJson: rawBody,
+          sha256: sha256Hex(rawBody),
+          status: "REJECTED",
+          failureReason: `provider-not-allowed:${provider}`,
+        },
+      });
+      return { ok: false as const, status: 403, message: "provider-not-allowed" };
+    }
+  }
+
+  // Provider accuracy mode (signature)
+  if (cfg.providerAccuracyMode) {
+    const sig = await verifyWebhookSignature({ provider, rawBody, headers });
+    if (!sig.ok) {
+      await prisma.webhookAuditLog.create({
+        data: {
+          provider,
+          chain,
+          endpoint,
+          ip: ip || undefined,
+          headersJson: safeJson(headersToObject(headers)),
+          payloadJson: rawBody,
+          sha256: sha256Hex(rawBody),
+          status: "REJECTED",
+          failureReason: `bad-signature:${sig.reason || "unknown"}`,
+        },
+      });
+      return { ok: false as const, status: 401, message: "bad-signature" };
+    }
+  }
+
+  const row = await prisma.webhookAuditLog.create({
+    data: {
+      provider,
+      chain,
+      endpoint,
+      ip: ip || undefined,
+      headersJson: safeJson(headersToObject(headers)),
+      payloadJson: rawBody,
+      sha256: sha256Hex(rawBody),
+      status: "RECEIVED",
+    },
+  });
+
+  // Enqueue async processing (retry handled by worker)
+  await queues.payments.add(
+    "process_webhook_audit",
+    { auditLogId: row.id },
+    { removeOnComplete: true, removeOnFail: 100, attempts: 10, backoff: { type: "exponential", delay: 5000 } }
+  );
+
+  return { ok: true as const, status: 200, auditLogId: row.id };
+}
+
+function sha256Hex(data: string) {
+  return crypto.createHash("sha256").update(data).digest("hex");
+}
+
+function headersToObject(headers: Headers) {
+  const out: Record<string, string> = {};
+  headers.forEach((v, k) => {
+    out[k.toLowerCase()] = v;
+  });
+  return out;
+}
+
+function safeJson(obj: unknown) {
+  try {
+    return JSON.stringify(obj);
+  } catch {
+    return "{}";
+  }
+}
+
+## PAYMENTS: app/api/webhooks/**
+
+
+### app/api/webhooks/alchemy/route.ts
+
+import { ingestWebhook } from "@/lib/payments/webhookIngest";
+import { inferChainFromAlchemy } from "@/lib/payments/inferChain";
+import { getRequestIp } from "@/lib/requestIp";
+
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const ip = getRequestIp(req);
+  let chain: any = null;
+  try {
+    const payload = JSON.parse(rawBody);
+    chain = inferChainFromAlchemy(payload);
+  } catch {
+    // ignore
+  }
+  const res = await ingestWebhook({
+    provider: "ALCHEMY",
+    chain,
+    endpoint: "alchemy",
+    ip,
+    headers: req.headers,
+    rawBody,
+  });
+  return Response.json({ ok: res.ok, auditLogId: (res as any).auditLogId }, { status: res.status });
+}
+
+### app/api/webhooks/helius/route.ts
+
+import { ingestWebhook } from "@/lib/payments/webhookIngest";
+import { getRequestIp } from "@/lib/requestIp";
+
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const ip = getRequestIp(req);
+  const res = await ingestWebhook({
+    provider: "HELIUS",
+    chain: "SOLANA",
+    endpoint: "helius",
+    ip,
+    headers: req.headers,
+    rawBody,
+  });
+  return Response.json({ ok: res.ok, auditLogId: (res as any).auditLogId }, { status: res.status });
+}
+
+### app/api/webhooks/quicknode/route.ts
+
+import { ingestWebhook } from "@/lib/payments/webhookIngest";
+import { inferChainFromQuicknode } from "@/lib/payments/inferChain";
+import { getRequestIp } from "@/lib/requestIp";
+
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const ip = getRequestIp(req);
+  let chain: any = null;
+  try {
+    const payload = JSON.parse(rawBody);
+    chain = inferChainFromQuicknode(payload);
+  } catch {
+    // ignore
+  }
+  const res = await ingestWebhook({
+    provider: "QUICKNODE",
+    chain,
+    endpoint: "quicknode",
+    ip,
+    headers: req.headers,
+    rawBody,
+  });
+  return Response.json({ ok: res.ok, auditLogId: (res as any).auditLogId }, { status: res.status });
+}
+
+### app/api/webhooks/trongrid/route.ts
+
+import { ingestWebhook } from "@/lib/payments/webhookIngest";
+import { getRequestIp } from "@/lib/requestIp";
+
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  const ip = getRequestIp(req);
+  const res = await ingestWebhook({
+    provider: "TRONGRID",
+    chain: "TRON",
+    endpoint: "trongrid",
+    ip,
+    headers: req.headers,
+    rawBody,
+  });
+  return Response.json({ ok: res.ok, auditLogId: (res as any).auditLogId }, { status: res.status });
+}
+
+## PAYMENTS: app/api/admin/payments/**
+
+
+### app/api/admin/payments/config/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+
+const schema = z.object({
+  strictMode: z.boolean(),
+  providerAccuracyMode: z.boolean(),
+  toleranceBps: z.coerce.number().int().min(0).max(5000),
+  submittedStaleMinutes: z.coerce.number().int().min(1).max(10_000),
+  reconcileEveryMs: z.coerce.number().int().min(30_000).max(24 * 60 * 60 * 1000),
+  allowlistJson: z.string().min(2).max(20_000),
+});
+
+function safeJsonObject(s: string) {
+  try {
+    const obj = JSON.parse(s);
+    if (!obj || typeof obj !== "object") return null;
+    return obj;
+  } catch {
+    return null;
+  }
+}
+
+export async function GET() {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+  const cfg = await prisma.paymentConfig.findUnique({ where: { id: 1 } });
+  return Response.json({ config: cfg });
+}
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ error: "INVALID_BODY", details: parsed.error.flatten() }, { status: 400 });
+
+  const allow = safeJsonObject(parsed.data.allowlistJson);
+  if (!allow) return Response.json({ error: "INVALID_ALLOWLIST_JSON" }, { status: 400 });
+
+  const cfg = await prisma.paymentConfig.upsert({
+    where: { id: 1 },
+    create: {
+      id: 1,
+      strictMode: parsed.data.strictMode,
+      providerAccuracyMode: parsed.data.providerAccuracyMode,
+      toleranceBps: parsed.data.toleranceBps,
+      submittedStaleMinutes: parsed.data.submittedStaleMinutes,
+      reconcileEveryMs: parsed.data.reconcileEveryMs,
+      allowlistJson: parsed.data.allowlistJson,
+    },
+    update: {
+      strictMode: parsed.data.strictMode,
+      providerAccuracyMode: parsed.data.providerAccuracyMode,
+      toleranceBps: parsed.data.toleranceBps,
+      submittedStaleMinutes: parsed.data.submittedStaleMinutes,
+      reconcileEveryMs: parsed.data.reconcileEveryMs,
+      allowlistJson: parsed.data.allowlistJson,
+    },
+  });
+
+  return Response.json({ ok: true, config: cfg });
+}
+
+### app/api/admin/payments/dashboard/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+
+const FAIL_STATUSES = new Set(["FAILED", "NEEDS_REVIEW", "UNMATCHED"]);
+const SUCCESS_STATUSES = new Set(["CONFIRMED", "CREDITED"]);
+
+function floorToBucket(d: Date, bucketMinutes: number) {
+  const ms = bucketMinutes * 60 * 1000;
+  return new Date(Math.floor(d.getTime() / ms) * ms);
+}
+
+function safeDecimalToNumber(v: any) {
+  try {
+    if (v == null) return 0;
+    return Number(v.toString());
+  } catch {
+    return 0;
+  }
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const from = new Date(url.searchParams.get("from") || Date.now() - 24 * 60 * 60 * 1000);
+  const to = new Date(url.searchParams.get("to") || Date.now());
+  const chain = url.searchParams.get("chain") || "";
+  const asset = (url.searchParams.get("asset") || "").trim().toUpperCase();
+
+  const where: any = {
+    createdAt: { gte: from, lte: to },
+  };
+  if (chain) where.chain = chain;
+
+  const deposits = await prisma.starDeposit.findMany({
+    where,
+    select: {
+      id: true,
+      chain: true,
+      status: true,
+      provider: true,
+      failureReason: true,
+      createdAt: true,
+      creditedAt: true,
+      expectedAmount: true,
+      actualAmount: true,
+      token: { select: { symbol: true } },
+      user: { select: { id: true, email: true } },
+      package: { select: { stars: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const filteredDeposits = asset ? deposits.filter((d) => (d.token?.symbol || "") === asset) : deposits;
+
+  // 15m bucketed time-series for fail-rate/volume/amount
+  const bucketMinutes = 15;
+  const bucketMap = new Map<string, any>();
+  const chainsSet = new Set<string>();
+
+  for (const d of filteredDeposits) {
+    const b = floorToBucket(d.createdAt, bucketMinutes);
+    const key = b.toISOString();
+    const row = bucketMap.get(key) || { t: key, volume: 0, amountSum: 0 };
+
+    row.volume += 1;
+
+    const c = String(d.chain);
+    chainsSet.add(c);
+
+    // amountSum: sum expected (for consistent comparison)
+    const ex = safeDecimalToNumber(d.expectedAmount);
+    row.amountSum += ex;
+
+    row[`${c}_total`] = (row[`${c}_total`] || 0) + 1;
+    if (FAIL_STATUSES.has(String(d.status))) {
+      row[`${c}_failed`] = (row[`${c}_failed`] || 0) + 1;
+    }
+
+    bucketMap.set(key, row);
+  }
+
+  const chainsArr = Array.from(chainsSet).sort();
+  const buckets = Array.from(bucketMap.values())
+    .sort((a, b) => String(a.t).localeCompare(String(b.t)))
+    .map((r) => {
+      for (const c of chainsArr) {
+        const total = r[`${c}_total`] || 0;
+        const failed = r[`${c}_failed`] || 0;
+        r[`${c}_failRate`] = total > 0 ? (failed / total) * 100 : 0;
+      }
+      r.amountSum = Number((r.amountSum || 0).toFixed(6));
+      return r;
+    });
+
+  // Provider accuracy report (failed deposits / total) in range
+  const providerAgg = new Map<string, { provider: string; total: number; failed: number }>();
+  for (const d of filteredDeposits) {
+    const p = String(d.provider);
+    const cur = providerAgg.get(p) || { provider: p, total: 0, failed: 0 };
+    cur.total += 1;
+    if (FAIL_STATUSES.has(String(d.status))) cur.failed += 1;
+    providerAgg.set(p, cur);
+  }
+  const providerAccuracy = Array.from(providerAgg.values())
+    .map((x) => ({ ...x, failRate: x.total > 0 ? x.failed / x.total : 0 }))
+    .sort((a, b) => b.total - a.total);
+
+  // Breakdown by asset symbol (filtered)
+  const assetAgg = new Map<string, { asset: string; total: number; failed: number }>();
+  for (const d of filteredDeposits) {
+    const sym = d.token?.symbol || "(none)";
+    const cur = assetAgg.get(sym) || { asset: sym, total: 0, failed: 0 };
+    cur.total += 1;
+    if (FAIL_STATUSES.has(String(d.status))) cur.failed += 1;
+    assetAgg.set(sym, cur);
+  }
+  const breakdownAsset = Array.from(assetAgg.values())
+    .map((x) => ({ ...x, failRate: x.total > 0 ? x.failed / x.total : 0 }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 50);
+
+  // Token totals per symbol (expected sum + confirmed/credited actual sum)
+  const tokenTotalsAgg = new Map<
+    string,
+    { asset: string; deposits: number; expectedSum: number; actualSum: number; successDeposits: number }
+  >();
+  for (const d of filteredDeposits) {
+    const sym = d.token?.symbol || "(none)";
+    const cur = tokenTotalsAgg.get(sym) || {
+      asset: sym,
+      deposits: 0,
+      expectedSum: 0,
+      actualSum: 0,
+      successDeposits: 0,
+    };
+    cur.deposits += 1;
+    cur.expectedSum += safeDecimalToNumber(d.expectedAmount);
+    if (SUCCESS_STATUSES.has(String(d.status))) {
+      cur.successDeposits += 1;
+      cur.actualSum += safeDecimalToNumber(d.actualAmount) || safeDecimalToNumber(d.expectedAmount);
+    }
+    tokenTotalsAgg.set(sym, cur);
+  }
+  const tokenTotals = Array.from(tokenTotalsAgg.values())
+    .map((x) => ({
+      ...x,
+      expectedSum: Number(x.expectedSum.toFixed(6)),
+      actualSum: Number(x.actualSum.toFixed(6)),
+    }))
+    .sort((a, b) => b.deposits - a.deposits);
+
+  // Top failing reasons (filtered)
+  const reasonAgg = new Map<string, number>();
+  for (const d of filteredDeposits) {
+    if (!FAIL_STATUSES.has(String(d.status))) continue;
+    const reason = d.failureReason || "(unknown)";
+    reasonAgg.set(reason, (reasonAgg.get(reason) || 0) + 1);
+  }
+  const topFailReasons = Array.from(reasonAgg.entries())
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
+
+  // Top users causing failures
+  const userFailAgg = new Map<string, { userId: string; email: string | null; count: number }>();
+  for (const d of filteredDeposits) {
+    if (!FAIL_STATUSES.has(String(d.status))) continue;
+    if (!d.user) continue;
+    const cur = userFailAgg.get(d.user.id) || { userId: d.user.id, email: d.user.email || null, count: 0 };
+    cur.count += 1;
+    userFailAgg.set(d.user.id, cur);
+  }
+  const topFailUsers = Array.from(userFailAgg.values()).sort((a, b) => b.count - a.count).slice(0, 20);
+
+  // Stars credited (TOPUP transactions) - time-series + leaderboard
+  const starTx = await prisma.starTransaction.findMany({
+    where: {
+      type: "TOPUP",
+      depositId: { not: null },
+      createdAt: { gte: from, lte: to },
+    },
+    select: {
+      stars: true,
+      createdAt: true,
+      user: { select: { id: true, email: true } },
+      deposit: { select: { chain: true, token: { select: { symbol: true } } } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const filteredStarTx = starTx.filter((t) => {
+    if (chain && String(t.deposit?.chain || "") !== chain) return false;
+    if (asset && String(t.deposit?.token?.symbol || "").toUpperCase() !== asset) return false;
+    return true;
+  });
+
+  const starBucketMap = new Map<string, { t: string; starsSum: number; txCount: number }>();
+  let totalStars = 0;
+  for (const t of filteredStarTx) {
+    const stars = Number(t.stars || 0);
+    totalStars += stars;
+    const b = floorToBucket(t.createdAt, bucketMinutes);
+    const key = b.toISOString();
+    const row = starBucketMap.get(key) || { t: key, starsSum: 0, txCount: 0 };
+    row.starsSum += stars;
+    row.txCount += 1;
+    starBucketMap.set(key, row);
+  }
+  const starsBuckets = Array.from(starBucketMap.values()).sort((a, b) => String(a.t).localeCompare(String(b.t)));
+
+  const starUserAgg = new Map<string, { userId: string; email: string | null; starsSum: number; txCount: number }>();
+  for (const t of filteredStarTx) {
+    const u = t.user;
+    if (!u) continue;
+    const cur = starUserAgg.get(u.id) || { userId: u.id, email: u.email || null, starsSum: 0, txCount: 0 };
+    cur.starsSum += Number(t.stars || 0);
+    cur.txCount += 1;
+    starUserAgg.set(u.id, cur);
+  }
+  const topStarUsers = Array.from(starUserAgg.values()).sort((a, b) => b.starsSum - a.starsSum).slice(0, 20);
+
+  const starsCredited = {
+    totalStars,
+    txCount: filteredStarTx.length,
+    buckets: starsBuckets,
+    topUsers: topStarUsers,
+  };
+
+  return Response.json({
+    buckets,
+    chains: chainsArr,
+    providerAccuracy,
+    breakdownAsset,
+    tokenTotals,
+    topFailReasons,
+    topFailUsers,
+    starsCredited,
+  });
+}
+
+### app/api/admin/payments/deposits/assign-user/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { queues } from "@/lib/queues";
+import { z } from "zod";
+
+const schema = z.object({
+  depositId: z.string().min(1),
+  email: z.string().email(),
+});
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return Response.json({ ok: false, error: "INVALID_JSON" }, { status: 400 });
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ ok: false, error: "INVALID_INPUT" }, { status: 400 });
+
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  if (!user) return Response.json({ ok: false, error: "USER_NOT_FOUND" }, { status: 404 });
+
+  const dep = await prisma.starDeposit.findUnique({ where: { id: parsed.data.depositId } });
+  if (!dep) return Response.json({ ok: false, error: "DEPOSIT_NOT_FOUND" }, { status: 404 });
+
+  await prisma.starDeposit.update({
+    where: { id: dep.id },
+    data: {
+      userId: user.id,
+      status: dep.status === "UNMATCHED" ? "CONFIRMED" : dep.status,
+      failureReason: null,
+      events: { create: { type: "ADMIN_ASSIGN_USER", message: `Assigned to user ${user.email}` } },
+    },
+  });
+
+  await queues.payments.add(
+    "reconcile_deposit",
+    { depositId: dep.id },
+    { removeOnComplete: true, removeOnFail: 100, attempts: 10, backoff: { type: "exponential", delay: 5000 } }
+  );
+
+  return Response.json({ ok: true });
+}
+
+### app/api/admin/payments/deposits/manual-credit/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { creditDepositStars } from "@/lib/payments/credit";
+import { z } from "zod";
+
+const schema = z.object({ depositId: z.string().min(1), reason: z.string().optional() });
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ ok: false, error: "INVALID_INPUT" }, { status: 400 });
+
+  try {
+    const out = await creditDepositStars(parsed.data.depositId, parsed.data.reason || "ADMIN_MANUAL_CREDIT");
+    return Response.json({ ok: true, out });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e?.message || "FAILED" }, { status: 500 });
+  }
+}
+
+### app/api/admin/payments/deposits/reconcile/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { queues } from "@/lib/queues";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+
+const schema = z.object({ depositId: z.string().min(1) });
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ ok: false, error: "INVALID_INPUT" }, { status: 400 });
+
+  const dep = await prisma.starDeposit.findUnique({ where: { id: parsed.data.depositId } });
+  if (!dep) return Response.json({ ok: false, error: "DEPOSIT_NOT_FOUND" }, { status: 404 });
+
+  await queues.payments.add(
+    "reconcile_deposit",
+    { depositId: dep.id },
+    { removeOnComplete: true, removeOnFail: 100, attempts: 10, backoff: { type: "exponential", delay: 5000 } }
+  );
+
+  return Response.json({ ok: true });
+}
+
+### app/api/admin/payments/deposits/refund/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { refundDepositStars } from "@/lib/payments/credit";
+import { z } from "zod";
+
+const schema = z.object({ depositId: z.string().min(1), reason: z.string().optional() });
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ ok: false, error: "FORBIDDEN" }, { status: 403 });
+  }
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ ok: false, error: "INVALID_INPUT" }, { status: 400 });
+
+  try {
+    const out = await refundDepositStars(parsed.data.depositId, parsed.data.reason || "ADMIN_REFUND");
+    return Response.json({ ok: true, out });
+  } catch (e: any) {
+    return Response.json({ ok: false, error: e?.message || "FAILED" }, { status: 500 });
+  }
+}
+
+### app/api/admin/payments/export/deposits/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { csvResponse, toCsv } from "@/lib/payments/csv";
+
+function parseDate(s: string | null, fallback: Date) {
+  if (!s) return fallback;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const q = (url.searchParams.get("q") || "").trim();
+  const chain = (url.searchParams.get("chain") || "").trim();
+  const status = (url.searchParams.get("status") || "").trim();
+  const asset = (url.searchParams.get("asset") || "").trim().toUpperCase();
+  const from = parseDate(url.searchParams.get("from"), new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+  const to = parseDate(url.searchParams.get("to"), new Date());
+
+  const where: any = { createdAt: { gte: from, lte: to } };
+  if (chain) where.chain = chain;
+  if (status) where.status = status;
+  if (asset) where.token = { symbol: asset };
+  if (q) {
+    where.OR = [
+      { id: { contains: q } },
+      { txHash: { contains: q } },
+      { failureReason: { contains: q } },
+      { memo: { contains: q } },
+      { user: { email: { contains: q } } },
+    ];
+  }
+
+  // hard cap for safety
+  const rows = await prisma.starDeposit.findMany({
+    where,
+    include: { user: true, token: true, package: true, custodialAddress: true },
+    orderBy: { createdAt: "desc" },
+    take: 50_000,
+  });
+
+  const csv = toCsv(rows, [
+    { key: "createdAt", header: "createdAt", value: (r) => r.createdAt.toISOString() },
+    { key: "id", header: "depositId", value: (r) => r.id },
+    { key: "chain", header: "chain", value: (r) => r.chain },
+    { key: "asset", header: "asset", value: (r) => r.token?.symbol || "" },
+    { key: "status", header: "status", value: (r) => r.status },
+    { key: "provider", header: "provider", value: (r) => r.provider || "" },
+    { key: "user", header: "userEmail", value: (r) => r.user?.email || "" },
+    { key: "expectedAmount", header: "expectedAmount", value: (r) => r.expectedAmount?.toString?.() ?? String(r.expectedAmount ?? "") },
+    { key: "actualAmount", header: "actualAmount", value: (r) => r.actualAmount?.toString?.() ?? String(r.actualAmount ?? "") },
+    { key: "stars", header: "stars", value: (r) => r.package?.stars ?? 0 },
+    { key: "txHash", header: "txHash", value: (r) => r.txHash || "" },
+    { key: "memo", header: "memo", value: (r) => r.memo || "" },
+    { key: "custodial", header: "custodialAddress", value: (r) => r.custodialAddress?.address || "" },
+    { key: "failureReason", header: "failureReason", value: (r) => r.failureReason || "" },
+    { key: "updatedAt", header: "updatedAt", value: (r) => r.updatedAt.toISOString() },
+  ]);
+
+  return csvResponse(`deposits_${from.toISOString()}_${to.toISOString()}.csv`, csv);
+}
+
+### app/api/admin/payments/export/events/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { csvResponse, toCsv } from "@/lib/payments/csv";
+
+function parseDate(s: string | null, fallback: Date) {
+  if (!s) return fallback;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const depositId = (url.searchParams.get("depositId") || "").trim();
+  const type = (url.searchParams.get("type") || "").trim();
+  const q = (url.searchParams.get("q") || "").trim();
+  const from = parseDate(url.searchParams.get("from"), new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const to = parseDate(url.searchParams.get("to"), new Date());
+
+  const where: any = { createdAt: { gte: from, lte: to } };
+  if (depositId) where.depositId = depositId;
+  if (type) where.type = type;
+  if (q) where.OR = [{ message: { contains: q } }, { type: { contains: q } }, { depositId: { contains: q } }];
+
+  const rows = await prisma.starDepositEvent.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 50_000,
+  });
+
+  const csv = toCsv(rows, [
+    { key: "createdAt", header: "createdAt", value: (r) => r.createdAt.toISOString() },
+    { key: "id", header: "eventId", value: (r) => r.id },
+    { key: "depositId", header: "depositId", value: (r) => r.depositId },
+    { key: "type", header: "type", value: (r) => r.type },
+    { key: "message", header: "message", value: (r) => r.message || "" },
+    { key: "dataJson", header: "dataJson", value: (r) => r.dataJson || "" },
+  ]);
+
+  return csvResponse(`deposit_events_${from.toISOString()}_${to.toISOString()}.csv`, csv);
+}
+
+### app/api/admin/payments/export/webhooks/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { csvResponse, toCsv } from "@/lib/payments/csv";
+
+function parseDate(s: string | null, fallback: Date) {
+  if (!s) return fallback;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? fallback : d;
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const provider = (url.searchParams.get("provider") || "").trim();
+  const status = (url.searchParams.get("status") || "").trim();
+  const chain = (url.searchParams.get("chain") || "").trim();
+  const q = (url.searchParams.get("q") || "").trim();
+  const from = parseDate(url.searchParams.get("from"), new Date(Date.now() - 24 * 60 * 60 * 1000));
+  const to = parseDate(url.searchParams.get("to"), new Date());
+
+  const where: any = { createdAt: { gte: from, lte: to } };
+  if (provider) where.provider = provider;
+  if (status) where.status = status;
+  if (chain) where.chain = chain;
+  if (q) {
+    where.OR = [
+      { depositId: { contains: q } },
+      { sha256: { contains: q } },
+      { failureReason: { contains: q } },
+      { endpoint: { contains: q } },
+    ];
+  }
+
+  const rows = await prisma.webhookAuditLog.findMany({
+    where,
+    orderBy: { createdAt: "desc" },
+    take: 50_000,
+  });
+
+  const csv = toCsv(rows, [
+    { key: "createdAt", header: "createdAt", value: (r) => r.createdAt.toISOString() },
+    { key: "id", header: "auditId", value: (r) => r.id },
+    { key: "provider", header: "provider", value: (r) => r.provider },
+    { key: "chain", header: "chain", value: (r) => r.chain || "" },
+    { key: "endpoint", header: "endpoint", value: (r) => r.endpoint },
+    { key: "status", header: "status", value: (r) => r.status },
+    { key: "depositId", header: "depositId", value: (r) => r.depositId || "" },
+    { key: "sha256", header: "sha256", value: (r) => r.sha256 },
+    { key: "failureReason", header: "failureReason", value: (r) => r.failureReason || "" },
+  ]);
+
+  return csvResponse(`webhook_logs_${from.toISOString()}_${to.toISOString()}.csv`, csv);
+}
+
+### app/api/admin/payments/secrets/route.ts
+
+import { auth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
+import { prisma } from "@/lib/prisma";
+import { z } from "zod";
+import type { PaymentProvider } from "@prisma/client";
+
+const schema = z.object({
+  env: z.string().min(1).max(40),
+  provider: z.string().min(1),
+  name: z.string().min(1).max(80),
+  value: z.string().min(1).max(20_000),
+  active: z.boolean().optional().default(true),
+});
+
+const PROVIDERS = new Set(["ALCHEMY", "QUICKNODE", "HELIUS", "TRONGRID", "MANUAL"]);
+
+export async function POST(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) return Response.json({ error: "INVALID_BODY", details: parsed.error.flatten() }, { status: 400 });
+
+  if (!PROVIDERS.has(parsed.data.provider)) return Response.json({ error: "INVALID_PROVIDER" }, { status: 400 });
+
+  const row = await prisma.paymentProviderSecret.upsert({
+    where: {
+      env_provider_name: {
+        env: parsed.data.env,
+        provider: parsed.data.provider as PaymentProvider,
+        name: parsed.data.name,
+      },
+    },
+    create: {
+      env: parsed.data.env,
+      provider: parsed.data.provider as PaymentProvider,
+      name: parsed.data.name,
+      value: parsed.data.value,
+      active: parsed.data.active,
+    },
+    update: {
+      value: parsed.data.value,
+      active: parsed.data.active,
+    },
+  });
+
+  return Response.json({ ok: true, row });
+}
+
+export async function GET(req: Request) {
+  const session = await auth();
+  try {
+    requireAdmin(session);
+  } catch {
+    return Response.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
+
+  const url = new URL(req.url);
+  const env = (url.searchParams.get("env") || "").trim();
+  const provider = (url.searchParams.get("provider") || "").trim();
+  const where: any = {};
+  if (env) where.env = env;
+  if (provider) where.provider = provider;
+  const rows = await prisma.paymentProviderSecret.findMany({ where, orderBy: { updatedAt: "desc" }, take: 200 });
+  return Response.json({ rows });
+}
+
+## VIDEO: lib/videos/similar.ts
+
+import { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { SIMILAR_WEIGHTS } from "@/lib/videos/similarScoring";
+import { env } from "@/lib/env";
+import { getSimilarVideosFromCache, setSimilarVideosCache } from "@/lib/videos/similarCache";
+
+export type SimilarVideoDebug = {
+  score: number;
+  ftScore: number;
+  tagOverlap: number;
+  catMatch: number;
+  chanMatch: number;
+};
+
+export type SimilarVideo = {
+  id: string;
+  title: string;
+  thumbKey: string | null;
+  isSensitive: boolean;
+  createdAt: Date;
+  channel: { id: string; name: string; slug: string } | null;
+  author: { id: string; name: string | null; email: string | null } | null;
+  _similar: SimilarVideoDebug;
+};
+
+/**
+ * Advanced similar videos ranking.
+ *
+ * Requirements (per spec):
+ * - Tags overlap
+ * - Category match
+ * - Full-text ranking (MySQL MATCH ... AGAINST)
+ * - Exclude current video
+ * - Prefer same channel
+ */
+export async function getSimilarVideosAdvanced(
+  videoId: string,
+  {
+    take = 12,
+    maxCandidates = 150,
+  }: {
+    take?: number;
+    maxCandidates?: number;
+  } = {}
+): Promise<SimilarVideo[]> {
+  // Redis cache (keyed by videoId).
+  // We cache a larger list and slice to requested `take`.
+  const cached = await getSimilarVideosFromCache(videoId);
+  if (cached) {
+    return cached.slice(0, take);
+  }
+
+  const requestedTake = take;
+  const takeForCompute = Math.max(requestedTake, env.SIMILAR_CACHE_MAX_ITEMS ?? 50);
+
+  const current = await prisma.video.findUnique({
+    where: { id: videoId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      channelId: true,
+      categoryId: true,
+      tags: { select: { tagId: true, tag: { select: { slug: true, name: true } } } },
+    },
+  });
+
+  if (!current) return [];
+
+  const tagIds = current.tags.map((t) => t.tagId);
+  const tagTokens = current.tags
+    .map((t) => t.tag.slug || t.tag.name)
+    .filter(Boolean)
+    .slice(0, 12);
+
+  // Build a reasonable full-text query.
+  // We purposely keep it short to avoid weird MATCH behavior with very long strings.
+  const query = `${current.title} ${tagTokens.join(" ")}`.trim().slice(0, 220);
+
+  // If no tags: use a dummy value to keep the SQL valid.
+  const tagIdsOrDummy = tagIds.length ? tagIds : ["__none__"];
+  const channelId = current.channelId || "__none__";
+  const categoryId = current.categoryId || "__none__";
+
+  type Row = {
+    id: string;
+    score: number;
+    ftScore: number;
+    tagOverlap: number;
+    catMatch: number;
+    chanMatch: number;
+  };
+
+  // Weights — tuneable.
+  const W_CHAN = SIMILAR_WEIGHTS.channel;
+  const W_CAT = SIMILAR_WEIGHTS.category;
+  const W_TAG = SIMILAR_WEIGHTS.tagOverlap;
+  const W_FT = SIMILAR_WEIGHTS.fullText;
+
+  const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
+    SELECT
+      v.id,
+      (
+        (CASE WHEN v.channelId = ${channelId} THEN 1 ELSE 0 END) * ${W_CHAN}
+        + (CASE WHEN v.categoryId = ${categoryId} THEN 1 ELSE 0 END) * ${W_CAT}
+        + (COUNT(DISTINCT vt.tagId) * ${W_TAG})
+        + (MATCH(v.title, v.description) AGAINST (${query} IN NATURAL LANGUAGE MODE) * ${W_FT})
+      ) AS score,
+      MATCH(v.title, v.description) AGAINST (${query} IN NATURAL LANGUAGE MODE) AS ftScore,
+      COUNT(DISTINCT vt.tagId) AS tagOverlap,
+      (CASE WHEN v.categoryId = ${categoryId} THEN 1 ELSE 0 END) AS catMatch,
+      (CASE WHEN v.channelId = ${channelId} THEN 1 ELSE 0 END) AS chanMatch
+    FROM Video v
+    LEFT JOIN VideoTag vt
+      ON vt.videoId = v.id
+      AND vt.tagId IN (${Prisma.join(tagIdsOrDummy)})
+    WHERE v.status = 'PUBLISHED'
+      AND v.id <> ${videoId}
+    GROUP BY v.id
+    HAVING score > 0
+    ORDER BY score DESC, v.createdAt DESC
+    LIMIT ${maxCandidates};
+  `);
+
+  const ids = rows.map((r) => r.id);
+
+  const videos = ids.length
+    ? await prisma.video.findMany({
+        where: { id: { in: ids } },
+        include: {
+          channel: { select: { id: true, name: true, slug: true } },
+          author: { select: { id: true, name: true, email: true } },
+        },
+      })
+    : [];
+
+  const byId = new Map(videos.map((v) => [v.id, v]));
+  const debugById = new Map(rows.map((r) => [r.id, r]));
+
+  const out: SimilarVideo[] = [];
+  for (const id of ids) {
+    const v = byId.get(id);
+    const dbg = debugById.get(id);
+    if (!v || !dbg) continue;
+    out.push({
+      id: v.id,
+      title: v.title,
+      thumbKey: v.thumbKey,
+      isSensitive: Boolean((v as any).isSensitive),
+      createdAt: v.createdAt,
+      channel: v.channel,
+      author: v.author,
+      _similar: {
+        score: Number(dbg.score) || 0,
+        ftScore: Number(dbg.ftScore) || 0,
+        tagOverlap: Number(dbg.tagOverlap) || 0,
+        catMatch: Number(dbg.catMatch) || 0,
+        chanMatch: Number(dbg.chanMatch) || 0,
+      },
+    });
+    if (out.length >= takeForCompute) break;
+  }
+
+  // Fallback fill (best-effort) to always show something.
+  if (out.length < takeForCompute) {
+    const remaining = takeForCompute - out.length;
+    const picked = new Set([videoId, ...out.map((x) => x.id)]);
+
+    // 1) same channel
+    if (current.channelId) {
+      const more = await prisma.video.findMany({
+        where: { status: "PUBLISHED", channelId: current.channelId, id: { notIn: Array.from(picked) } },
+        orderBy: { createdAt: "desc" },
+        take: remaining,
+        include: {
+          channel: { select: { id: true, name: true, slug: true } },
+          author: { select: { id: true, name: true, email: true } },
+        },
+      });
+      for (const v of more) {
+        picked.add(v.id);
+        out.push({
+          id: v.id,
+          title: v.title,
+          thumbKey: v.thumbKey,
+          isSensitive: Boolean((v as any).isSensitive),
+          createdAt: v.createdAt,
+          channel: v.channel,
+          author: v.author,
+          _similar: { score: 0, ftScore: 0, tagOverlap: 0, catMatch: 0, chanMatch: 1 },
+        });
+      }
+    }
+
+    // 2) same category
+    if (out.length < takeForCompute && current.categoryId) {
+      const remaining2 = takeForCompute - out.length;
+      const more = await prisma.video.findMany({
+        where: { status: "PUBLISHED", categoryId: current.categoryId, id: { notIn: Array.from(picked) } },
+        orderBy: { createdAt: "desc" },
+        take: remaining2,
+        include: {
+          channel: { select: { id: true, name: true, slug: true } },
+          author: { select: { id: true, name: true, email: true } },
+        },
+      });
+      for (const v of more) {
+        picked.add(v.id);
+        out.push({
+          id: v.id,
+          title: v.title,
+          thumbKey: v.thumbKey,
+          isSensitive: Boolean((v as any).isSensitive),
+          createdAt: v.createdAt,
+          channel: v.channel,
+          author: v.author,
+          _similar: { score: 0, ftScore: 0, tagOverlap: 0, catMatch: 1, chanMatch: 0 },
+        });
+      }
+    }
+
+    // 3) latest
+    if (out.length < takeForCompute) {
+      const remaining3 = takeForCompute - out.length;
+      const more = await prisma.video.findMany({
+        where: { status: "PUBLISHED", id: { notIn: Array.from(picked) } },
+        orderBy: { createdAt: "desc" },
+        take: remaining3,
+        include: {
+          channel: { select: { id: true, name: true, slug: true } },
+          author: { select: { id: true, name: true, email: true } },
+        },
+      });
+      for (const v of more) {
+        picked.add(v.id);
+        out.push({
+          id: v.id,
+          title: v.title,
+          thumbKey: v.thumbKey,
+          isSensitive: Boolean((v as any).isSensitive),
+          createdAt: v.createdAt,
+          channel: v.channel,
+          author: v.author,
+          _similar: { score: 0, ftScore: 0, tagOverlap: 0, catMatch: 0, chanMatch: 0 },
+        });
+      }
+    }
+  }
+
+  // Store to cache (best-effort). Even if caching fails, we still return computed result.
+  await setSimilarVideosCache(videoId, out);
+
+  return out.slice(0, requestedTake);
+}
+
+## VIDEO: lib/videos/similarCache.ts
+
+import { env } from "@/lib/env";
+import { redisDel, redisGetJSON, redisSetJSON } from "@/lib/redis";
+import type { SimilarVideo } from "./similar";
+
+/**
+ * Redis cache for Similar Videos.
+ *
+ * Keyed by videoId (per requirement), storing a list of top-N similar videos.
+ *
+ * Invalidation strategy
+ * - Explicit delete on admin update of: title, category, tags (and description).
+ * - TTL as an additional safety net.
+ */
+
+export const SIMILAR_CACHE_KEY_PREFIX = "videoshare:similar:v1:";
+
+export type SimilarVideosCachePayload = {
+  v: 1;
+  generatedAt: number; // epoch ms
+  items: Array<
+    Omit<SimilarVideo, "createdAt"> & {
+      createdAt: number;
+    }
+  >;
+};
+
+export function similarCacheKey(videoId: string) {
+  return `${SIMILAR_CACHE_KEY_PREFIX}${videoId}`;
+}
+
+export async function getSimilarVideosFromCache(videoId: string): Promise<SimilarVideo[] | null> {
+  const payload = await redisGetJSON<SimilarVideosCachePayload>(similarCacheKey(videoId));
+  if (!payload || payload.v !== 1 || !Array.isArray(payload.items)) return null;
+
+  // Re-hydrate Date.
+  return payload.items.map((it) => ({
+    ...it,
+    createdAt: new Date(it.createdAt),
+  }));
+}
+
+export async function setSimilarVideosCache(videoId: string, items: SimilarVideo[]) {
+  const ttl = env.SIMILAR_CACHE_TTL_SECONDS ?? 900;
+  const maxItems = env.SIMILAR_CACHE_MAX_ITEMS ?? 50;
+
+  const payload: SimilarVideosCachePayload = {
+    v: 1,
+    generatedAt: Date.now(),
+    items: items.slice(0, maxItems).map((it) => ({
+      ...it,
+      createdAt: it.createdAt.getTime(),
+    })),
+  };
+
+  await redisSetJSON(similarCacheKey(videoId), payload, ttl);
+}
+
+export async function invalidateSimilarVideosCache(videoId: string) {
+  await redisDel(similarCacheKey(videoId));
+}

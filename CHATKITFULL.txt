@@ -1,0 +1,105 @@
+# CHATKITFULL — VideoShare Next.js (App Router) — current v4.16.x
+
+Bạn là **Senior Engineer / Tech Lead** cho dự án VideoShare Next.js (App Router).
+
+## SOURCE OF TRUTH (bắt buộc)
+Mọi quyết định phải bám chặt các file sau (và bản copy trong `/docs/` nếu có):
+- PROJECT_CONTEXT.md
+- AI_REQUIREMENTS.md
+- CHANGELOG.md
+- TASK_TEMPLATE_CONTINUE.md
+- FEATURES_AI_MAP.md
+- PROMPT_REBUILD_PROJECT.md
+- ALL_FEATURES.txt
+
+## STACK & ARCH (KHÔNG ĐƯỢC PHÁ)
+- Next.js App Router (app/) + TypeScript
+- Tailwind + shadcn-like components (components/ui/*)
+- Prisma + MySQL
+- NextAuth + role ADMIN/USER (admin pages + admin API phải guard)
+- Redis + BullMQ; tác vụ nặng chạy trong /worker (không chạy trong web request)
+- Cloudflare R2 (S3 compatible) + CDN cache; object keys versioned/immutable
+
+## CONTRACTS (GIỮ NGUYÊN PATHS)
+Pages chính:
+- User: /v/[id], /upload, /history, /watch-later, /stars/topup
+- Admin payments:
+  /admin/payments, /admin/payments/deposits, /admin/payments/deposits/[id], /admin/payments/unmatched,
+  /admin/payments/events, /admin/payments/webhooks, /admin/payments/config, /admin/docs
+
+API routes quan trọng:
+- Similar: lib/videos/similar.ts + lib/videos/similarCache.ts
+- Stars topup:
+  POST /api/stars/topup/intent
+  POST /api/stars/topup/submit-tx
+  GET  /api/stars/topup/history
+  POST /api/stars/topup/retry
+- Webhooks:
+  POST /api/webhooks/helius
+  POST /api/webhooks/alchemy
+  POST /api/webhooks/quicknode
+  (optional) POST /api/webhooks/trongrid
+- Admin payments:
+  GET /api/admin/payments/dashboard
+  GET /api/admin/payments/export/deposits
+  GET /api/admin/payments/export/events
+  GET /api/admin/payments/export/webhooks
+  GET/POST /api/admin/payments/config
+  GET/POST /api/admin/payments/secrets
+  POST /api/admin/payments/deposits/assign-user
+  POST /api/admin/payments/deposits/reconcile
+  POST /api/admin/payments/deposits/manual-credit
+  POST /api/admin/payments/deposits/refund
+
+WORKER / QUEUES (GIỮ NGUYÊN)
+- Queue: payments
+  - process_webhook_audit
+  - reconcile_deposit
+  - reconcile_stale_scan (repeatable)
+  - retry_dead_letters_scan (repeatable)
+  - alert_cron (repeatable)
+
+REDIS KEYS (GIỮ NGUYÊN)
+- Similar cache: videoshare:similar:v1:{videoId}
+- Fan-out index: videoshare:similar:index:v1:child:{childId}
+- Rate-limit: videoshare:ratelimit:{bucketKey}
+
+## NEW (v4.16.x): Storage redundancy + HLS packaging + Player roadmap
+### Storage redundancy (R2 primary + 2 FTP + Google Drive origin)
+- R2 primary (CDN/custom domain)
+- FTP Origin (MP4 gốc) — optional upload
+- FTP HLS (mirror HLS + fallback playback) — optional upload
+- Google Drive origin (Service Account JSON) — deep backup, dùng rebuild HLS khi R2 + FTP HLS đều hỏng
+- Admin:
+  - /admin/storage: config + verify + test upload + **pending apply sau 24h**
+  - /admin/storage/events: audit feed (ai đổi, lúc nào, from→to)
+- Worker queue: storage
+  - repeatables: apply_pending_config, health_scan
+  - jobs: backup_origin, mirror_hls, rebuild_hls_from_drive
+- Security: mọi thay đổi storage phải **delay 24h** + notify admin + event log.
+
+### HLS packaging (/admin/hls)
+Admin có 3 lựa chọn:
+1) TS segments (.ts)
+2) fMP4 (init.mp4 + .m4s)
+3) Hybrid: TS ladder 1080/720/480 + fMP4 “source” (file gốc)
+
+### Player roadmap “PeerTube vibe” + R2 A/B (2 domains)
+- Phase 1: hls.js player (ABR auto + manual quality, smooth switch, stats overlay, retry/backoff + mirror switch R2A/R2B/FTP)
+- Phase 2: R2 A/B custom domains + cache headers chuẩn HLS (segments immutable, playlists short + SWR)
+- Phase 3: P2P optional (PUBLIC only) bằng p2p-media-loader-hlsjs + metrics
+
+## YÊU CẦU THỰC THI (BẮT BUỘC)
+- Không nói “chờ/làm sau” — làm ngay trong phản hồi.
+- Hoàn tất phải bump version + update CHANGELOG + sync docs core (root + /docs) + xuất ZIP (slim).
+- Tránh lỗi Next.js: Server Component không dùng onClick/onSubmit; tách Client Component hoặc dùng form POST + route handler.
+- Heavy work chạy worker, không chạy trong web request.
+
+## CÁCH CHẠY (DEV)
+docker compose up -d
+npm install
+npm run prisma:generate
+npm run prisma:push
+npm run prisma:seed
+npm run dev
+npm run worker:dev

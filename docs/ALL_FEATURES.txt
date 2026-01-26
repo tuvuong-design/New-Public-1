@@ -1,0 +1,624 @@
+VideoShare Next.js – Full Feature & Function Inventory
+Project: VideoShare Next.js v4.x (chia sẻ video)
+Source snapshot: v4.13.0 (codebase hiện tại)  |  Generated: 2026-01-22
+
+Mục đích
+- Tài liệu này liệt kê toàn bộ tính năng/chức năng có trong code.
+- Dùng để mở chat mới: AI đọc nhanh toàn cảnh modules + routes + worker jobs + contracts.
+
+================================================================================
+v4.4.0 Delta (so với v4.3.x)
+================================================================================
+- Prisma groundwork for Notifications (chuẩn bị cho hệ thống thông báo):
+  - `enum NotificationType` + `model Notification` trong `prisma/schema.prisma`.
+  - Ghi chú: Trong snapshot v4.4.0 này mới có nền schema + docs; UI/API notifications có thể được implement ở các bản tiếp theo.
+
+
+================================================================================
+v4.4.1 Delta (so với v4.4.0)
+================================================================================
+- Đồng bộ lại docs để chat mới AI hiểu đúng: README.md, AI_UPDATE_GUIDE.md, docs/README.md, docs/ARCHITECTURE.md, docs/FEATURE_MAP.md, docs/ADMIN_UI.md.
+- Không thay đổi hành vi runtime.
+
+
+================================================================================
+v4.5.0 Delta (so với v4.4.1)
+================================================================================
+- NFT marketplace nội bộ (fixed-price listing MVP): /nft/market, /nft/items/[id].
+- Listing APIs: POST /api/nft/listings/create, POST /api/nft/listings/[id]/cancel, POST /api/nft/listings/[id]/buy.
+- Fee/royalty split + hold first UNVERIFIED sale proceeds theo config.
+- Stars spend/balance endpoints auto-release StarHold matured (HOLD_RELEASE audit).
+
+
+================================================================================
+v4.6.1 Delta (so với v4.6.0)
+================================================================================
+- NFT export (EVM): optional media upload to IPFS (image + optional direct video url) with fee-by-size.
+- NFT export UI: Solana/Tron were "coming soon" in 4.6.1 (see 4.6.2 for beta support).
+- NFT export MIRROR mode: show on-chain ownerOf() (cached in Redis).
+- Build fix: remove accidental ethers import; use @noble/hashes.
+
+
+================================================================================
+v4.6.2 Delta (so với v4.6.1)
+================================================================================
+- NFT export verify (beta):
+  - SOLANA: submit txHash + mintAddress; verify via Solana RPC token balance delta.
+  - TRON: submit txid; verify Transfer event via TronGrid `/v1/transactions/{txid}/events`.
+- UI: enable Solana/TRON in chain selector; show mintAddress input on /nft/exports when chain=SOLANA.
+
+
+================================================================================
+v4.6.0 Delta (so với v4.5.0)
+================================================================================
+- NFT marketplace nội bộ (auctions MVP):
+  - Auction APIs: POST /api/nft/auctions/create, /api/nft/auctions/[id]/bid, /api/nft/auctions/[id]/cancel, /api/nft/auctions/[id]/settle.
+  - UI tích hợp vào /nft/market (list) + /nft/items/[id] (create/bid/cancel/settle).
+  - Bid escrow dùng StarHold; outbid refund; settle tạo NftSale + fee/royalty split.
+- Export NFT on-chain (foundation):
+  - User flow: POST /api/nft/export/request (freeze marketplace) → worker prepare metadata (nft.storage) → /nft/exports submit txHash → worker verify Transfer (EVM) → EXPORTED.
+  - Deterministic tokenId theo spec: tokenId = uint256(keccak256(abi.encodePacked("SRNFT:", chainid, nftId))).
+  - Admin contract rotation: /admin/nft/contracts với pending+delay 24h + audit logs; /admin/nft/events.
+  - Seed Polygon primary contract: 0xF6E5fEB76959f59c80023392386B997B068c27c6.
+
+A) Stack / Architecture
+
+================================================================================
+Web
+- Next.js App Router (app/) + TypeScript.
+- TailwindCSS + shadcn-like components (components/ui/*).
+
+Data / Auth
+- Prisma + MySQL.
+- NextAuth (role ADMIN/USER), middleware guard cho admin.
+
+Async / Infra
+- Redis + BullMQ. Tác vụ nặng chạy trong worker (worker/src/*), không chạy trong web request.
+- Storage: Cloudflare R2 (S3-compatible) + CDN base URL.
+
+Non-breaking contracts (cần giữ nguyên)
+- Pages quan trọng:
+  - User: /v/[id], /upload, /history, /watch-later, /stars/topup
+  - Admin: /admin/payments/* (deposits, events, webhooks, config, docs)
+- API quan trọng (payments/stars/webhooks/admin payments) và Similar cache.
+- Queue payments job names: process_webhook_audit, reconcile_deposit, reconcile_stale_scan, retry_dead_letters_scan, alert_cron.
+- Redis keys:
+  - videoshare:similar:v1:{videoId}
+  - videoshare:similar:index:v1:child:{childId}
+  - videoshare:ratelimit:{bucketKey}
+
+================================================================================
+B) Core User-Facing Features
+================================================================================
+1) Video Watch / Playback
+- Video page: /v/[id] (app/v/[id]/page.tsx)
+- Player: HLS playback (components/player/*)
+- Related/similar videos block (uses lib/videos/similar.ts + Redis cache)
+- Comments, Likes, Shares, Views tracking via API routes.
+
+2) Video Upload + Processing Pipeline
+- UI: /upload (app/upload/page.tsx)
+- Multipart upload to R2:
+  - POST /api/upload/init
+  - POST /api/upload/sign-part
+  - POST /api/upload/complete
+- Enqueue processing:
+  - POST /api/videos/queue-process
+- Worker pipeline:
+  - processVideo: validate, generate assets, prepare metadata
+  - encodeHls: transcode to HLS ladder, generate playlists
+  - subtitles: optional auto subtitles
+  - clamav scan optional
+
+3) Feeds / Discovery
+- Homepage: / (app/page.tsx)
+- Trending: /trending (app/trending/page.tsx) + GET /api/trending
+- TikTok-like feed: /feed (app/feed/page.tsx) using components/tiktok/TikTokVerticalFeed
+
+4) User Profile & Settings
+- Profile page: /u/[id] (app/u/[id]/page.tsx)
+- Settings: /me/settings (app/me/settings/page.tsx)
+
+5) Install Wizard (first-run)
+- /install (app/install/page.tsx) + UI wizard
+- APIs:
+  - GET /api/install/status
+  - POST /api/install/test-db
+  - POST /api/install/test-redis
+  - POST /api/install/test-r2
+  - POST /api/install/write-env
+
+================================================================================
+C) Safety / Moderation / Sensitive Content (PeerTube-like)
+================================================================================
+1) Sensitive Videos (NSFW)
+- Video flag: Video.isSensitive
+- Viewer policy: User.sensitiveMode (SHOW | BLUR | HIDE)
+- Site default: SiteConfig.sensitiveDefaultMode
+- UX:
+  - Feed thumbnails blur/label (components/sensitive/SensitiveThumb.tsx)
+  - Watch gate overlay (components/sensitive/SensitiveVideoGate.tsx)
+  - "Tôi hiểu và muốn xem" gate hành vi kiểu PeerTube
+- SEO: vẫn index bình thường, metadata OG cho video nhạy cảm có cảnh báo/blur.
+- OG blur endpoint: GET /api/og/video/[id]
+- User preference API: POST /api/user/preferences/sensitive
+- Admin toggles:
+  - Admin config page /admin/config
+  - Admin video metadata update route (admin can set isSensitive)
+
+2) Comment Moderation
+- Comment visibility states (VISIBLE/HIDDEN/AUTHOR_ONLY/DELETED) + moderation UI.
+- APIs:
+  - GET/POST /api/comments
+  - POST /api/comments/moderate
+
+================================================================================
+D) Stars / Super Thanks / Gifts
+================================================================================
+1) Stars Balance & Transfers
+- GET /api/stars/balance
+- POST /api/stars/send (supports anonymous sender)
+- Gifts:
+  - GET/POST /api/gifts
+  - POST /api/gifts/send (supports anonymous sender)
+
+2) Super Thanks (comment highlight + effects)
+- Super Thanks là comment được gắn thông tin tặng sao (server trả fields cho client render).
+- UI effects:
+  - Shimmer sweep
+  - Sparkles (1-5) theo tier số sao
+  - Glow border theo tier
+  - Spinning star icon
+  - Pulse badge
+  - Hover scale/shadow
+- Tier styling:
+  - Bronze (<=5)
+  - Silver (<=10)
+  - Gold (<=25)
+  - Platinum (<=50)
+  - Diamond (>50) + TOP SUPPORTER badge
+- Sorting:
+  - Super Thanks hiển thị đầu tiên, sort theo superThanksStars desc
+- TOP SUPPORTER:
+  - chỉ gắn badge cho Diamond và là người có tổng stars cao nhất trong video
+- Anonymous sender:
+  - UI cho phép ẩn danh, API trả senderAnonymous để UI hiển thị "Ẩn danh".
+
+================================================================================
+E) Ads / Boost / Premium
+================================================================================
+1) Ads (device + bot targeting)
+- Ads API: GET /api/ads?scope=...
+- Targeting per placement:
+  - showOnMobile/showOnTablet/showOnDesktop
+  - hideForBots
+- Global page banners:
+  - GLOBAL_TOP, GLOBAL_BOTTOM (components/ads/GlobalBannerAds.tsx + app/layout.tsx)
+- Admin UI & API:
+  - /admin/ads (app/admin/ads/page.tsx)
+  - /api/admin/ad-placement
+
+2) Boost (promoted video)
+- Boost plans:
+  - GET /api/boost/plans
+- Start/cancel boost:
+  - POST /api/boost/start
+  - POST /api/boost/cancel
+- Admin boost:
+  - /api/admin/boost/plans
+  - /api/admin/boost/orders
+
+3) Membership Premium / Premium+
+- Page: /premium
+- Purchase/settings APIs:
+  - POST /api/membership/purchase
+  - POST /api/membership/settings
+- Benefits:
+  - Remove HTML ads (ads API disables for Premium/Premium+)
+  - Premium+ can hide boost ads (setting)
+  - Premium+ free boosts quota tracked by PremiumBenefitUsage
+- Badge:
+  - VerifiedBadge component shows membership tier
+
+================================================================================
+F) Community / Social
+================================================================================
+1) Subscriptions
+- Page: /subscriptions
+- Toggle API: POST /api/subscriptions/toggle
+
+2) Community Posts + Polls
+- Channel community: /u/[id]/community
+- Create/list posts: /api/community/posts
+- Vote poll: /api/community/polls/vote
+- Components:
+  - CommunityPostComposer
+  - CommunityPoll
+
+================================================================================
+G) NFT (Internal)
+================================================================================
+- NFT home: /nft
+- NFT market (fixed-price listings): /nft/market
+- NFT item detail: /nft/items/[id]
+- Mint: /nft/mint + POST /api/nft/mint
+- Avatar: POST /api/nft/avatar
+- Listings (fixed-price):
+  - POST /api/nft/listings/create
+  - POST /api/nft/listings/[id]/cancel
+  - POST /api/nft/listings/[id]/buy
+- User NFTs: /u/[id]/nfts
+- Fees: platform fee bps (default 1%) + royalty bps (0-10%) split creator/author (creator share 20/50/80%).
+- Hold: first UNVERIFIED sale proceeds held for N days (configurable) before unlocked.
+- NFT mint fees & treasury transfer via SiteConfig + StarTransaction.
+- Metadata lock behavior for minted NFTs (admin metadata update route blocks title/tags changes).
+
+================================================================================
+H) Payments / Stars Topup System (Blockchain deposits)
+================================================================================
+User flows (Stars topup)
+- UI: /stars/topup
+- APIs:
+  - POST /api/stars/topup/intent
+  - POST /api/stars/topup/submit-tx
+  - GET  /api/stars/topup/history
+  - POST /api/stars/topup/retry
+
+Webhooks (native payload ingest)
+- POST /api/webhooks/helius
+- POST /api/webhooks/alchemy
+- POST /api/webhooks/quicknode
+- (optional) POST /api/webhooks/trongrid
+
+Core payment logic
+- lib/payments/*
+  - config.ts: đọc config, allowlist, secrets
+  - webhookIngest.ts: ingest raw payload -> audit log
+  - providerVerify.ts / explorer.ts: verify tx / reconcile
+  - credit.ts: credit stars idempotent
+  - tolerance.ts: tolerance bps
+  - rateLimit.ts: anti-abuse
+  - csv.ts: export helpers
+  - inferChain.ts: classify chain/provider
+
+Admin payments
+- Pages:
+  - /admin/payments
+  - /admin/payments/deposits
+  - /admin/payments/deposits/[id]
+  - /admin/payments/unmatched
+  - /admin/payments/events
+  - /admin/payments/webhooks
+  - /admin/payments/config
+  - /admin/docs
+- APIs:
+  - GET /api/admin/payments/dashboard
+  - GET /api/admin/payments/export/deposits
+  - GET /api/admin/payments/export/events
+  - GET /api/admin/payments/export/webhooks
+  - GET/POST /api/admin/payments/config
+  - GET/POST /api/admin/payments/secrets
+  - POST /api/admin/payments/deposits/assign-user
+  - POST /api/admin/payments/deposits/reconcile
+  - POST /api/admin/payments/deposits/manual-credit
+  - POST /api/admin/payments/deposits/refund
+
+Worker queue (payments)
+- Queue name: payments
+- Jobs:
+  - process_webhook_audit
+  - reconcile_deposit
+  - reconcile_stale_scan (repeatable)
+  - retry_dead_letters_scan (repeatable)
+  - alert_cron (repeatable)
+- Defaults (env):
+  - PAYMENTS_RECONCILE_EVERY_MS=120000
+  - PAYMENTS_SUBMITTED_STALE_MINUTES=10
+  - PAYMENTS_TOLERANCE_BPS=50
+
+================================================================================
+I) Similar Videos (Advanced ranking + Redis cache)
+================================================================================
+- Ranking logic: lib/videos/similar.ts
+  - tags overlap, category match, channel match, MySQL fulltext score, recency tie-break
+  - fallback fills (same channel/category/latest)
+- Weights: lib/videos/similarScoring.ts
+- Redis cache: lib/videos/similarCache.ts
+  - key: videoshare:similar:v1:{videoId}
+  - payload versioning (v=1), TTL, max items
+  - invalidation helpers
+
+================================================================================
+J) Admin / Ops / Observability
+================================================================================
+Admin areas
+- Admin home: /admin
+- Users: /admin/users
+- Videos: /admin/videos (+ per-video actions publish/hide/delete/requeue/update-metadata)
+- Gifts: /admin/gifts
+- Stars: /admin/stars (adjust / transactions)
+- Reports: /admin/reports
+- API sources: /admin/api-sources (+ sync)
+- Subtitles: /admin/subtitles (+ request)
+- HLS config: /admin/hls
+- Docs: /admin/docs
+
+Ops APIs
+- Health: GET /api/health
+- Verify: GET /api/verify (basic)
+- Verify worker: GET /api/verify/worker
+
+Packaging / Release
+- npm run package:slim -> zip không kèm node_modules/.next/worker/dist
+- npm run package:full -> zip kèm artifacts (chạy install + build trước khi zip)
+
+================================================================================
+K) SEO / PWA / Integrations
+================================================================================
+SEO
+- robots: app/robots.ts
+- sitemap: app/sitemap.ts
+- llms: /llms.txt route
+- indexnow: /indexnow-key.txt route + lib/indexnow.ts
+
+PWA
+- public/manifest.json, public/sw.js
+- flag NEXT_PUBLIC_ENABLE_PWA
+
+Push notifications
+- OneSignal init (components/push/OneSignalInit.tsx)
+
+Storage / CDN
+- R2 client helpers: lib/r2.ts, worker/src/r2.ts
+- Delete helpers: lib/r2delete.ts
+
+Rate limit
+- Redis rate-limit helpers: lib/rateLimit.ts + key prefix videoshare:ratelimit:{bucketKey}
+
+================================================================================
+L) API Endpoint Index (from app/api/*)
+================================================================================
+Public / Auth
+- GET  /api/health
+- GET  /api/verify
+- GET  /api/verify/worker
+- GET  /api/trending
+- GET/POST /api/comments
+- POST /api/comments/moderate
+- GET/POST /api/likes
+- POST /api/shares
+- POST /api/views
+
+Upload
+- POST /api/upload/init
+- POST /api/upload/sign-part
+- POST /api/upload/complete
+- POST /api/videos/queue-process
+
+Ads
+- GET /api/ads
+
+Membership
+- POST /api/membership/purchase
+- POST /api/membership/settings
+
+Boost
+- GET  /api/boost/plans
+- POST /api/boost/start
+- POST /api/boost/cancel
+
+Stars/Gifts
+- GET  /api/stars/balance
+- POST /api/stars/send
+- GET/POST /api/gifts
+- POST /api/gifts/send
+
+Stars Topup
+- POST /api/stars/topup/intent
+- POST /api/stars/topup/submit-tx
+- GET  /api/stars/topup/history
+- POST /api/stars/topup/retry
+
+Sensitive
+- POST /api/user/preferences/sensitive
+- GET  /api/og/video/[id]
+
+Community
+- GET/POST /api/community/posts
+- POST /api/community/polls/vote
+- POST /api/subscriptions/toggle
+
+NFT
+- POST /api/nft/mint
+- POST /api/nft/avatar
+
+Payments Webhooks
+- POST /api/webhooks/helius
+- POST /api/webhooks/alchemy
+- POST /api/webhooks/quicknode
+- POST /api/webhooks/trongrid
+
+Admin
+- /api/admin/site-config
+- /api/admin/ad-placement
+- /api/admin/reports
+- /api/admin/star-transactions
+- /api/admin/stars-adjust
+- /api/admin/gifts
+- /api/admin/api-sources (+ /sync)
+- /api/admin/subtitles/request
+- /api/admin/hls-config
+- /api/admin/boost/plans
+- /api/admin/boost/orders
+- /api/admin/videos/* (publish/hide/delete/requeue/update-metadata)
+- /api/admin/payments/* (dashboard, exports, config, secrets, deposits actions)
+
+================================================================================
+M) Worker / Queues Index
+================================================================================
+Worker entry: worker/src/index.ts
+Queues
+- processVideo
+- encodeHls
+- subtitles
+- syncApiSource
+- payments (BullMQ)
+- verify (ping)
+
+Worker jobs
+- worker/src/jobs/processVideo.ts
+- worker/src/jobs/encodeHls.ts
+- worker/src/jobs/subtitles.ts
+- worker/src/jobs/clamavScan.ts
+- worker/src/jobs/syncApiSource.ts
+- worker/src/jobs/payments/*
+
+================================================================================
+N) v4.3.6 Additions
+================================================================================
+- Video password gate (401):
+  - Watch HTML `/v/[id]` uses `unauthorized()` when `Video.accessPasswordHash` exists and cookie is missing/invalid.
+  - Unlock endpoint: `POST /api/videos/[id]/unlock` (form POST, HttpOnly signed cookie).
+- External sync seeds:
+  - `ApiSource` seeds (PeerTube3 + Zone3s posts API) disabled by default.
+  - Worker sync supports PeerTube mapping, channel upsert, owner assignment via env, and skip resurrecting DELETED videos.
+
+
+
+## v4.3.8 additions
+- My Channel Sync page: /my-channel/sync (PeerTube vibe) + UserMenu link.
+- User sync APIs: /api/me/sync-sources (+ run/toggle/delete).
+- Prisma ApiSource: ownerId/channelId/lastSync* for per-user sync + status.
+
+
+================================================================================
+Z) Requested Roadmap (chưa implement trong codebase v4.6.0)
+================================================================================
+Ghi chú: các mục dưới đây do product yêu cầu bổ sung, hiện **chưa có** UI/API/worker trong repo. 
+Mục tiêu: đưa vào docs để chat mới AI hiểu lộ trình và không nhầm là đã xong.
+
+1) Tính năng Video
+- Video Editor Online: cắt/edit cơ bản
+- Screen Recording: ghi màn hình browser
+- Video Background: thêm nhạc nền/effects
+- Video Chapters: mục lục/timestamps
+
+2) Kiếm tiền cho Creators
+- Creator Program: chia sẻ doanh thu quảng cáo
+- Ad Revenue Dashboard: thống kê thu nhập
+- Sponsorships: người xem đóng góp
+- Affiliate Program: mời người dùng kiếm hoa hồng
+
+3) Analytics & Insights
+- Real-time stats: người xem online
+- Video performance charts
+- Audience demographics
+- Retention analytics
+- Best posting time
+- A/B testing: thumbnail/title
+
+4) Tìm kiếm & Khám phá
+- Advanced filters (thời gian, chất lượng...)
+- Trending page
+- Explore page theo chủ đề
+- Recommended for you
+- Search suggestions (autocomplete)
+
+5) UI/UX cải tiến
+- Dark mode
+- Custom theme (màu)
+- Custom layout (grid/list)
+- Video player skins
+- Keyboard shortcuts
+- Accessibility: WCAG 2.1
+
+6) Performance
+- Lazy loading
+- Image optimization
+- CDN integration
+- Offline mode
+- Video preload
+
+7) Creator tools
+- Upload scheduling
+- Batch upload
+- Thumbnail A/B test
+- SEO analyzer
+- Tags suggestion (AI)
+
+8) Tích hợp bên ngoài
+- Social sharing
+- Embed player
+- RSS feeds
+- Webhooks cho creators
+- Public API
+
+9) Gamification
+- Achievements
+- Leaderboards
+- Daily tasks
+- Badges system
+- XP system
+
+
+# v4.8.x additions (Task 9–15)
+- Search & Discovery: /search, /explore, /tag/[slug], /category/[slug] + suggestions
+- Offline Mode (PWA): /offline + service worker + offline upload queue
+- Creator tips (stars) + revenue dashboard + creator webhooks
+- Gamification: XP/level/badges/daily tasks + leaderboards
+- Video chapters + studio editor + player timestamps
+- Public API (read-only) + RSS feeds
+- Studio editor trim (worker) + screen recording
+
+
+
+# v4.8.1 docs sync
+- Đồng bộ toàn bộ docs “xương sống” (root + /docs), cập nhật version headers và sửa mapping đường dẫn file.
+
+
+# v4.10.0 (Retention & Community)
+- Playlists (MVP): /playlists, /p/[id]; API /api/playlists*
+- Continue Watching: player auto-resume + GET /api/progress?videoId=...
+- History: /history (watch progress list)
+- Comment pin/heart: /api/comments/moderate (PIN/UNPIN/HEART/UNHEART)
+
+# v4.10.0 — Retention & Community
+- Playlists (MVP): create/edit/delete playlists; add/remove videos; public/unlisted/private; pages /playlists, /p/[id].
+- Continue Watching: cross-device resume via GET /api/progress?videoId=... + player auto-seek.
+- History: watch progress list at /history.
+- Comment engagement: pin/unpin (single pinned per video) + heart/unheart by owner/admin.
+
+
+=== v4.11.0 additions (Trust, safety & infra) ===
+- Admin Stars Ledger: /admin/stars/transactions (filters + CSV export)
+- Admin API: GET /api/admin/stars/export/ledger (CSV)
+- Payments dashboard audit counters: creditedDepositsMissingTx, topupTxMissingDeposit, doubleCreditDeposits
+- Stars credit risk rules (daily cap / hourly velocity / min gap) applied to manual-credit + reconcile
+- Payments worker alert_cron: alerts on NEEDS_REVIEW spikes (Discord optional)
+- Moderation queue pipeline for reports (video + comment)
+- CDN purge queue/job for route invalidation on video state/thumbnail changes (Cloudflare optional)
+- Search: MySQL FULLTEXT relevance fallback + Redis hot-query cache
+
+
+[v4.12.0] Growth Hacker Phase A
+- CTR tracking (card impression/click) across Home/Feed/Search/Trending; Studio Analytics dashboards with CTR chart + traffic sources.
+
+
+================================================================================
+v4.12.1 Delta (so với v4.12.0)
+================================================================================
+- Fix Next.js Server/Client boundary ở /boost: tách phần interactive (submit/cancel) sang Client Component `app/boost/ui/BoostClient.tsx`.
+
+
+================================================================================
+v4.13.0 Delta (so với v4.12.1)
+================================================================================
+- Creator Fan Club recurring billing (worker): repeatable job `payments:membership_billing_scan` → charge Stars + extend `CreatorMembership` (idempotent qua `CreatorMembershipInvoice`).
+- Premium videos (Early Access): `Video.access=PREMIUM` yêu cầu hội viên hoặc đã unlock bằng Stars (`POST /api/videos/[id]/unlock`); watch page hiển thị paywall join/unlock.
+- Creator goals: `CreatorGoal` (Stars/month) + progress bar trên watch page (tổng Stars theo `VideoMetricDaily.stars`).
+
+
+- Storage redundancy: R2 primary + FTP Origin (mp4) + FTP HLS (fallback) + Google Drive origin (rebuild)
+- Admin: /admin/storage (pending apply 24h + audit + notify), /admin/storage/events
+- HLS packaging: /admin/hls (TS / fMP4 / Hybrid: TS ladder 1080/720/480 + fMP4 source)
+- Player roadmap: PeerTube vibe (ABR, stats overlay, retry/failover, optional P2P) + R2 A/B dual domains

@@ -1,0 +1,2177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+// Viewer preference for sensitive content (PeerTube-like).
+// - SHOW: render normally
+// - BLUR: blur thumbnail/player until user reveals
+// - HIDE: hide in listings; show a warning gate on direct page
+enum SensitiveMode {
+  SHOW
+  BLUR
+  HIDE
+}
+
+enum VideoStatus {
+  DRAFT
+  PROCESSING
+  PUBLISHED
+  HIDDEN
+  ERROR
+  DELETED
+}
+
+// Access policy for video visibility (not SEO index).
+// - PUBLIC: visible to everyone
+// - PREMIUM_PLUS: only Premium+ (and owner/admin)
+// - PRIVATE: only owner/admin
+// - VIOLATOR_ONLY: only owner/admin, and interactions locked
+enum VideoAccess {
+  PUBLIC
+  // Creator paid content: viewer must have an active creator membership OR have unlocked via Stars.
+  PREMIUM
+  PREMIUM_PLUS
+  PRIVATE
+  VIOLATOR_ONLY
+}
+
+// Creator membership tiers (Fan Club).
+enum CreatorMembershipTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum CreatorMembershipStatus {
+  ACTIVE
+  CANCELED
+  LAPSED
+}
+
+// Creator membership source (paid subscription vs NFT-gated unlock).
+enum CreatorMembershipSource {
+  PAID
+  NFT_GATE
+}
+
+// Membership tiers.
+enum MembershipTier {
+  NONE
+  PREMIUM
+  PREMIUM_PLUS
+}
+
+// Comment moderation visibility.
+enum CommentVisibility {
+  VISIBLE
+  HIDDEN
+  AUTHOR_ONLY
+  DELETED
+}
+
+// Moderation actions (admin/creator)
+enum ModerationActionType {
+  HIDE_VIDEO
+  UNHIDE_VIDEO
+  HIDE_COMMENT
+  UNHIDE_COMMENT
+  STRIKE_USER
+  MUTE_USER_7D
+  UNMUTE_USER
+  BAN_USER
+  UNBAN_USER
+  UPDATE_KEYWORDS
+}
+
+// Playlist visibility
+
+// Collaborative playlist roles.
+enum PlaylistCollaboratorRole {
+  VIEWER
+  EDITOR
+}
+
+enum PlaylistVisibility {
+  PRIVATE
+  UNLISTED
+  PUBLIC
+}
+
+// Notifications
+enum NotificationType {
+  COMMENT_REPLY
+  VIDEO_LIKE
+  VIDEO_COMMENT
+  NEW_SUBSCRIBER
+  STAR_GIFT
+  NFT_PURCHASED
+  NFT_AUCTION_BID
+  MENTION
+  SYSTEM
+  CREATOR_TIP
+  CREATOR_MEMBERSHIP
+  BADGE_EARNED
+
+  WEEKLY_DIGEST
+}
+
+
+// Community post types (YouTube-like).
+enum CommunityPostType {
+  TEXT
+  IMAGE
+  GIF
+  POLL
+  YOUTUBE
+  LINK
+}
+
+// NFT
+enum NftVerificationStatus {
+  UNVERIFIED
+  VERIFIED
+}
+
+enum NftListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+}
+
+enum NftAuctionStatus {
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum NftExportStatus {
+  NONE
+  PENDING
+  READY
+  EXPORTED
+  FAILED
+}
+
+
+// Clip NFT mint: whether to create internal marketplace items, separate ClipNft records, or both.
+enum ClipNftMarketplaceMode {
+  SEPARATE_ONLY
+  MARKETPLACE_ONLY
+  BOTH
+}
+
+enum ClipNftStatus {
+  PENDING
+  SUBMITTED
+  MINTED
+  FAILED
+}
+
+enum BadgeType {
+  STREAK_30
+  TOP_TIPPER_MONTH
+  EARLY_ADOPTER
+  SERIES_COMPLETION
+}
+
+enum BadgeNftStatus {
+  PENDING
+  ISSUED
+  FAILED
+}
+
+enum NftMetadataStrategy {
+  PUBLIC_URL
+  IPFS_MEDIA
+}
+
+enum StarHoldStatus {
+  HELD
+  RELEASED
+  SETTLED
+}
+
+
+enum StarTxType {
+  GIFT
+  STARS
+  ADMIN_GRANT
+  ADMIN_DEDUCT
+  BOOST_PURCHASE
+  TOPUP
+  REFUND
+  MEMBERSHIP_PURCHASE
+  NFT_MINT
+  NFT_SALE
+  NFT_EXPORT
+  HOLD_RELEASE
+  CREATOR_TIP
+  CREATOR_MEMBERSHIP_PURCHASE
+  PREMIUM_VIDEO_UNLOCK
+
+}
+
+model User {
+  clipsCreated Clip[] @relation("ClipCreator")
+
+  id            String   @id @default(cuid())
+  name          String?
+  email         String?  @unique
+  username      String?  @unique
+  passwordHash  String?
+  role          Role     @default(USER)
+  image         String?
+
+  // Viewer preference for sensitive videos across the site.
+  sensitiveMode SensitiveMode @default(BLUR)
+
+  // Membership
+  membershipTier          MembershipTier @default(NONE)
+  membershipExpiresAt     DateTime?
+  premiumPlusHideBoostAds Boolean @default(false)
+
+  // Optional: use a minted NFT as avatar
+  avatarNftItemId String?
+  avatarNftItem   NftItem? @relation("UserAvatarNft", fields: [avatarNftItemId], references: [id], onDelete: SetNull)
+
+  // Wallet linking / NFT gating
+  wallets      UserWallet[]
+  badgeNfts    UserBadgeNft[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videos   Video[]
+  likes    Like[]
+  comments Comment[]
+  progress VideoProgress[]
+  videoUnlocks VideoUnlock[]
+
+  // Playlists
+  playlists Playlist[]
+  playlistCollaborations PlaylistCollaborator[]
+
+  // Stars
+  starBalance Int @default(0)
+  starTx      StarTransaction[]
+  deposits    StarDeposit[]
+  starHolds   StarHold[]
+
+  // Gamification
+  xp        Int @default(0)
+  level     Int @default(1)
+  xpEvents  XpEvent[]
+  userBadges UserBadge[]
+  dailyTasks DailyTaskProgress[]
+
+  // Creator monetization
+  creatorTipsSent     CreatorTip[] @relation("CreatorTipFrom")
+  creatorTipsReceived CreatorTip[] @relation("CreatorTipTo")
+
+  // Creator webhooks
+  creatorWebhookEndpoints  CreatorWebhookEndpoint[]
+  creatorWebhookDeliveries CreatorWebhookDelivery[]
+
+  // Reports
+  reports VideoReport[] @relation("ReportReporter")
+  reviews VideoReport[] @relation("ReportReviewer")
+
+  // Boost
+  boostOrders BoostOrder[]
+
+  // Subscriptions / Community
+  subscriptionsOut Subscription[] @relation("SubscriptionsOut")
+  subscriptionsIn  Subscription[] @relation("SubscriptionsIn")
+  communityPosts   CommunityPost[]
+
+  // NFT
+  nftCollections    NftCollection[] @relation("NftCollectionCreator")
+  nftItemsOwned     NftItem[] @relation("NftItemOwner")
+  nftListings       NftListing[] @relation("NftListingSeller")
+  nftAuctions       NftAuction[] @relation("NftAuctionSeller")
+  nftBids           NftBid[]
+  nftSalesBought    NftSale[] @relation("NftSaleBuyer")
+  nftSalesSold      NftSale[] @relation("NftSaleSeller")
+  nftExportRequests NftExportRequest[]
+  premiumUsage      PremiumBenefitUsage[]
+
+  // Analytics / Experiments
+  videoExperimentsCreated VideoExperiment[] @relation("VideoExperimentCreatedBy")
+
+  // Moderation / deletes
+  mutedUntil       DateTime?
+  bannedAt         DateTime?
+  banReason        String?   @db.VarChar(200)
+  strikeCount      Int       @default(0)
+
+  deletedVideos     Video[] @relation("VideoDeletedBy")
+  moderatedComments Comment[] @relation("CommentModeratedBy")
+  commentsPinned    Comment[] @relation("CommentPinnedBy")
+  commentsHearted   Comment[] @relation("CommentHeartedBy")
+  nftEventLogs      NftEventLog[] @relation("NftEventActor")
+
+  // Notifications
+  notifications         Notification[] @relation("NotificationUser")
+  notificationsAsActor  Notification[] @relation("NotificationActor")
+  notificationSetting NotificationSetting?
+  creatorModerationSetting CreatorModerationSetting? @relation("CreatorModerationSetting")
+  commentReportsFiled CommentReport[] @relation("CommentReportReporter")
+  commentReportsReviewed CommentReport[] @relation("CommentReportReviewer")
+  creatorMembershipPlans CreatorMembershipPlan[] @relation("CreatorMembershipPlans")
+  creatorMemberships CreatorMembership[] @relation("CreatorMemberships")
+  creatorMembershipsAsCreator CreatorMembership[] @relation("CreatorMembershipCreator")
+  creatorMembershipPurchases CreatorMembershipPurchase[] @relation("CreatorMembershipPurchaser")
+  creatorMembershipPurchasesAsCreator CreatorMembershipPurchase[] @relation("CreatorMembershipPurchaseCreator")
+
+  // Moderation actions audit
+  moderationActionsAsActor ModerationAction[] @relation("ModerationActor")
+  moderationActionsAsTarget ModerationAction[] @relation("ModerationTarget")
+
+  // Creator goals
+  creatorGoals CreatorGoal[] @relation("CreatorGoalCreator")
+}
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  actorUserId String?
+  type        NotificationType
+  title       String
+  body        String?          @db.Text
+  url         String?
+  dataJson    String?          @db.Text
+  isRead      Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+
+  user        User             @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor       User?            @relation("NotificationActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead, createdAt])
+  @@index([actorUserId])
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  videos      Video[]
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videos    Video[]
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videoTags VideoTag[]
+}
+
+model VideoTag {
+  videoId String
+  tagId   String
+
+  video   Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  tag     Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, tagId])
+}
+
+model Video {
+  id            String      @id @default(cuid())
+  title         String
+  description   String      @db.Text
+  status        VideoStatus @default(DRAFT)
+
+  // PeerTube-like flag for sensitive content.
+  // This does NOT affect SEO/indexing by default (video can stay PUBLISHED).
+  isSensitive   Boolean     @default(false)
+
+  // Access policy
+  access        VideoAccess @default(PUBLIC)
+
+  // Optional: one-time unlock price (Stars) for PREMIUM videos.
+  // If 0, the video is membership-only.
+  premiumUnlockStars Int     @default(0)
+
+  // If true, disable interactions (like/comment/share/stars/gifts)
+  interactionsLocked Boolean @default(false)
+
+  // Optional password gate for HTML viewing. When set, non-owner/admin
+  // must provide password to view the watch page (HTTP 401 Unauthorized).
+  accessPasswordHash String?
+  accessPasswordHint String?
+
+  durationSec   Int         @default(0)
+  width         Int         @default(0)
+  height        Int         @default(0)
+  sourceBytes   BigInt      @default(0)
+
+  sourceKey     String
+  thumbKey      String?
+  previewKey    String?
+
+  hlsBasePath   String?
+  masterM3u8Key String?
+
+  // Optional: secondary HLS output (e.g. fMP4 "source" packaging in hybrid mode).
+  // Used when Admin `/admin/hls` selects hybrid output.
+  hlsBasePathFmp4   String?
+  masterM3u8KeyFmp4 String?
+
+  viewCount     Int         @default(0)
+  likeCount     Int         @default(0)
+  commentCount  Int         @default(0)
+
+  shareCount    Int         @default(0)
+  starCount     Int         @default(0)
+  giftCount     Int         @default(0)
+
+  storyboardKey      String?
+  storyboardFrameW   Int         @default(160)
+  storyboardFrameH   Int         @default(90)
+  storyboardCols     Int         @default(10)
+  storyboardRows     Int         @default(10)
+  storyboardCount    Int         @default(0)
+  storyboardIntervalMs Int       @default(2000)
+
+  externalId    String?     @unique
+  embedUrl      String?     @unique
+
+  authorId      String?
+  author        User?       @relation(fields: [authorId], references: [id])
+
+  deletedAt     DateTime?
+  deletedById   String?
+  deletedBy     User?       @relation("VideoDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
+
+  channelId     String?
+  channel       Channel?    @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  categoryId    String?
+  category      Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  subtitles     Subtitle[]
+
+  clips Clip[]
+  moderationActions ModerationAction[]
+  comments      Comment[]
+  likes         Like[]
+  progress      VideoProgress[]
+  unlocks       VideoUnlock[]
+  tags          VideoTag[]
+  starTx        StarTransaction[]
+  chapters      VideoChapter[]
+  playlistItems PlaylistItem[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([status, access, createdAt])
+  @@index([categoryId, createdAt])
+  @@index([channelId, createdAt])
+
+  // Full-text index for advanced search/similar videos.
+  // Prisma will map this to a MySQL FULLTEXT index.
+  @@fulltext([title, description])
+
+// Reports / Boost / Metrics
+reports      VideoReport[]
+boostOrders  BoostOrder[]
+metricsDaily VideoMetricDaily[]
+metricsHourly VideoMetricHourly[]
+audienceDaily VideoAudienceCountryDaily[]
+retentionDaily VideoRetentionDaily[]
+experiments VideoExperiment[]
+}
+
+model Like {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  userId    String?
+  videoId   String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+
+  // Threading (nested comments - YouTube-like)
+  parentId  String?
+  rootId    String?
+  depth     Int      @default(0)
+
+  visibility    CommentVisibility @default(VISIBLE)
+  moderatedAt   DateTime?
+  moderatedById String?
+  moderatedBy   User? @relation("CommentModeratedBy", fields: [moderatedById], references: [id], onDelete: SetNull)
+
+  // Creator engagement
+  isPinned     Boolean   @default(false)
+  pinnedAt     DateTime?
+  pinnedById   String?
+  pinnedBy     User?     @relation("CommentPinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull)
+
+  isHearted    Boolean   @default(false)
+  heartedAt    DateTime?
+  heartedById  String?
+  heartedBy    User?     @relation("CommentHeartedBy", fields: [heartedById], references: [id], onDelete: SetNull)
+
+  // Super Thanks (gift / stars)
+  isSuperThanks    Boolean  @default(false)
+  superThanksStars Int      @default(0)
+  superThanksQty   Int      @default(1)
+  giftId           String?
+  starTxId         String?  @unique
+
+  user      User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  video     Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  gift      Gift?   @relation(fields: [giftId], references: [id], onDelete: SetNull)
+  starTx    StarTransaction? @relation(fields: [starTxId], references: [id], onDelete: SetNull)
+
+  // Relations for nested comments
+  parent    Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: SetNull)
+  replies   Comment[] @relation("CommentThread")
+
+  root      Comment?  @relation("CommentRoot", fields: [rootId], references: [id], onDelete: SetNull)
+  rootReplies Comment[] @relation("CommentRoot")
+
+  @@index([videoId, createdAt])
+  @@index([videoId, isPinned, pinnedAt])
+  @@index([videoId, isHearted, heartedAt])
+  @@index([isSuperThanks, createdAt])
+  @@index([videoId, parentId, createdAt])
+  @@index([videoId, rootId, createdAt])
+  moderationActions ModerationAction[]
+  reports CommentReport[]
+}
+
+model VideoProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  seconds   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+
+model Playlist {
+  id          String             @id @default(cuid())
+  ownerId     String
+  title       String
+  description String?            @db.Text
+  visibility  PlaylistVisibility @default(PRIVATE)
+
+  // Upgrades
+  coverKey          String?  @db.VarChar(500)
+  isSeries          Boolean  @default(false)
+  seriesSlug        String?  @unique @db.VarChar(120)
+  seriesDescription String?  @db.Text
+
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  items PlaylistItem[]
+  collaborators PlaylistCollaborator[]
+
+  @@index([ownerId, createdAt])
+  @@index([visibility, createdAt])
+  @@index([isSeries, createdAt])
+}
+
+model PlaylistCollaborator {
+  id         String                  @id @default(cuid())
+  playlistId String
+  userId     String
+  role       PlaylistCollaboratorRole @default(VIEWER)
+  createdAt  DateTime                @default(now())
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, userId])
+  @@index([userId, createdAt])
+  @@index([playlistId, createdAt])
+}
+
+model PlaylistItem {
+  id         String   @id @default(cuid())
+  playlistId String
+  videoId    String
+  sort       Int      @default(0)
+  addedAt    DateTime @default(now())
+
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  video    Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, videoId])
+  @@index([playlistId, sort])
+  @@index([videoId, addedAt])
+}
+
+model SiteConfig {
+  id                    Int      @id @default(1)
+  siteName              String   @default("VideoShare")
+  defaultDescription    String   @default("VideoShare - HLS + R2")
+  logoUrl               String?
+
+  gaEnabled             Boolean  @default(false)
+  gaMeasurementId       String?
+  gtmContainerId        String?
+  googleVerification    String?
+
+  indexNowEnabled       Boolean  @default(false)
+  indexNowKey           String?
+
+  oneSignalEnabled      Boolean  @default(false)
+  oneSignalAppId        String?
+  oneSignalSafariWebId  String?
+  oneSignalRestApiKey   String?
+
+  feedTikTokEnabled      Boolean  @default(false)
+  storyboardEnabled      Boolean  @default(false)
+
+  // Default viewer mode for sensitive videos (used for guests / fallback).
+  sensitiveDefaultMode   SensitiveMode @default(BLUR)
+
+  // Treasury user for collecting fees (optional).
+  treasuryUserId         String?
+
+  // Membership pricing (stars).
+  premiumPriceStars      Int      @default(500)
+  premiumDurationDays    Int      @default(30)
+  premiumPlusPriceStars  Int      @default(900)
+  premiumPlusDurationDays Int     @default(30)
+  premiumPlusFreeBoostsPerMonth Int @default(4)
+
+  // NFT config
+  // NFT gated features (feature flags)
+  nftGatedMembershipEnabled Boolean @default(false)
+  nftPremiumUnlockEnabled   Boolean @default(false)
+  creatorPassEnabled        Boolean @default(false)
+  achievementBadgesEnabled  Boolean @default(false)
+  clipNftMarketplaceMode    ClipNftMarketplaceMode @default(SEPARATE_ONLY)
+  clipNftOnChainMintEnabled Boolean @default(false)
+
+  nftCollectionMintFeeStars Int @default(50)
+  nftItemMintFeeStars       Int @default(10)
+  nftPlatformFeeBps         Int @default(100) // 1%
+  nftDefaultRoyaltyBps      Int @default(500) // 5%
+  nftMaxRoyaltyBps          Int @default(1000) // 10%
+  nftUnverifiedFirstSaleHoldDays Int @default(10)
+  nftExportBaseFeeStars     Int @default(0)
+  nftExportUploadMediaFeePerGbStars Int @default(0)
+  nftExportContractChangeDelayHours Int @default(24)
+  nftExportMirrorMode       String @default("READ_ONLY")
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model HlsConfig {
+  id             Int      @id @default(1)
+  segmentSeconds Int      @default(15)
+  packaging      String   @default("SINGLE_FILE")
+  ladderJson     String   @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Subtitle {
+  id          String   @id @default(cuid())
+  videoId     String
+  lang        String   @default("vi")
+  vttKey      String
+  provider    String   @default("openai-whisper")
+  createdAt   DateTime @default(now())
+
+  video       Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, lang])
+}
+
+model ApiSource {
+  id          String   @id @default(cuid())
+  name        String
+  baseUrl     String
+  apiKey      String?
+  prefix      String   @unique
+  enabled     Boolean  @default(true)
+  mappingJson String   @db.Text
+
+  // Optional ownership (for user-created channel sync sources)
+  ownerId     String?
+  owner       User?    @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  // Optional fixed target channel for imported videos
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  // Sync bookkeeping
+  lastSyncAt     DateTime?
+  lastSyncStatus String?  // OK | ERROR
+  lastSyncError  String?  @db.Text
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdPlacement {
+  id          Int      @id @default(autoincrement())
+  scope       String
+  enabled     Boolean  @default(false)
+
+  // Device / bot targeting (default: show on mobile/tablet only; hide for bots).
+  showOnDesktop Boolean @default(false)
+  showOnTablet  Boolean @default(true)
+  showOnMobile  Boolean @default(true)
+  hideForBots   Boolean @default(true)
+
+  everyN      Int      @default(6)
+  html        String   @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope])
+}
+
+model Gift {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  icon      String?
+  starsCost Int      @default(1)
+  active    Boolean  @default(true)
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  starTx    StarTransaction[]
+}
+
+model StarTransaction {
+  id        String     @id @default(cuid())
+  userId    String
+  delta     Int        // (+) admin grant / (-) user spend
+  type      StarTxType @default(STARS)
+  quantity  Int        @default(1)
+  stars     Int        @default(0) // absolute stars changed (for reporting)
+
+  videoId   String?
+  giftId    String?
+  depositId String?    @unique
+  note           String?    @db.Text
+  discountReason String?    @db.VarChar(60)
+  createdAt       DateTime   @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video?     @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  gift      Gift?      @relation(fields: [giftId], references: [id], onDelete: SetNull)
+
+  deposit   StarDeposit? @relation(fields: [depositId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([videoId, createdAt])
+  @@index([giftId, createdAt])
+}
+
+// =============================
+// Payments / Stars Topup
+// =============================
+
+enum Chain {
+  SOLANA
+  ETHEREUM
+  POLYGON
+  BSC
+  BASE
+  TRON
+}
+
+enum PaymentProvider {
+  MANUAL
+  HELIUS
+  QUICKNODE
+  ALCHEMY
+  TRONGRID
+}
+
+enum DepositStatus {
+  CREATED
+  SUBMITTED
+  OBSERVED
+  CONFIRMED
+  CREDITED
+  UNMATCHED
+  NEEDS_REVIEW
+  FAILED
+  REFUNDED
+}
+
+model Token {
+  id              String   @id @default(cuid())
+  chain           Chain
+  symbol          String
+  name            String
+  decimals        Int      @default(6)
+  // EVM: contract address (ERC20), TRON: TRC20 contract, SOL: mint address
+  contractAddress String?
+  isNative        Boolean  @default(false)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  packages        StarTopupPackage[]
+  deposits        StarDeposit[]
+
+  @@index([chain, symbol])
+  @@unique([chain, symbol, contractAddress])
+}
+
+model CustodialAddress {
+  id        String   @id @default(cuid())
+  chain     Chain
+  address   String
+  label     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deposits  StarDeposit[]
+
+  @@index([chain, active])
+  @@unique([chain, address])
+}
+
+model StarTopupPackage {
+  id                String   @id @default(cuid())
+  name              String
+  chain             Chain
+  tokenId           String
+  expectedAmount    Decimal  @db.Decimal(36, 18)
+  stars             Int
+  active            Boolean  @default(true)
+  sort              Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  token             Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  deposits          StarDeposit[]
+
+  @@index([chain, active])
+}
+
+model StarDeposit {
+  id                 String          @id @default(cuid())
+  userId             String?
+  chain              Chain
+  tokenId            String?
+  packageId          String?
+  custodialAddressId String
+  status             DepositStatus   @default(CREATED)
+
+  // expected vs actual (Decimal)
+  expectedAmount     Decimal?        @db.Decimal(36, 18)
+  actualAmount       Decimal?        @db.Decimal(36, 18)
+
+  // Solana: memo để auto-match depositId
+  memo               String?
+
+  txHash             String?         @db.VarChar(128)
+  provider           PaymentProvider @default(MANUAL)
+  failureReason      String?
+
+  confirmedAt        DateTime?
+  creditedAt         DateTime?
+  refundedAt         DateTime?
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  token              Token?          @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+  package            StarTopupPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  custodialAddress   CustodialAddress @relation(fields: [custodialAddressId], references: [id], onDelete: Cascade)
+
+  events             StarDepositEvent[]
+  webhooks           WebhookAuditLog[]
+
+  // Note: StarDeposit does not have `access` field (was a copy/paste bug).
+  @@index([status, createdAt])
+  @@index([chain, status, createdAt])
+  @@index([userId, createdAt])
+  @@index([txHash])
+}
+
+model StarDepositEvent {
+  id        String   @id @default(cuid())
+  depositId String
+  type      String
+  message   String?
+  dataJson  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  deposit   StarDeposit @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  @@index([depositId, createdAt])
+}
+
+model WebhookAuditLog {
+  id            String          @id @default(cuid())
+  depositId     String?
+  provider      PaymentProvider
+  chain         Chain?
+  endpoint      String
+  ip            String?
+  headersJson   String?         @db.Text
+  payloadJson   String          @db.Text
+  sha256        String
+  status        String          @default("RECEIVED")
+  failureReason String?
+  createdAt     DateTime        @default(now())
+
+  deposit       StarDeposit?    @relation(fields: [depositId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, sha256])
+  @@index([provider, createdAt])
+  @@index([depositId, createdAt])
+}
+
+model PaymentConfig {
+  id                     Int      @id @default(1)
+  strictMode             Boolean  @default(false)
+  // Nếu bật: webhook phải pass đúng signature của provider ("provider accuracy mode")
+  providerAccuracyMode   Boolean  @default(false)
+  // 0.5% = 50 bps (default)
+  toleranceBps           Int      @default(50)
+  submittedStaleMinutes  Int      @default(10)
+  reconcileEveryMs       Int      @default(120000)
+  // strict per chain/provider allowlist. Example:
+  // { "SOLANA": ["HELIUS","QUICKNODE"], "ETHEREUM": ["ALCHEMY","QUICKNODE"] }
+  allowlistJson          String   @db.Text
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model PaymentProviderSecret {
+  id        String          @id @default(cuid())
+  env       String          // APP_ENV (dev|prod)
+  provider  PaymentProvider
+  name      String
+  value     String          @db.Text
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([env, provider, name])
+  @@index([env, provider, active])
+}
+
+
+enum ReportStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+  REJECTED
+}
+
+enum BoostPlanType {
+  DURATION
+  TARGET_INTERACTIONS
+}
+
+enum BoostStatus {
+  ACTIVE
+  PAUSED
+  CANCELED
+  EXPIRED
+}
+
+model VideoReport {
+  id         String       @id @default(cuid())
+  videoId    String
+  reporterId String?
+  reason     String
+  details    String?      @db.Text
+  status     ReportStatus @default(OPEN)
+
+  ipHash     String?
+  reviewerId String?
+  reviewedAt DateTime?
+
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  video      Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  reporter   User?        @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  reviewer   User?        @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([videoId, createdAt])
+  // Note: VideoReport does not have `access` field (was a copy/paste bug).
+  @@index([status, createdAt])
+  @@index([reporterId, createdAt])
+  @@index([videoId, ipHash])
+}
+
+model VideoMetricDaily {
+  id        String   @id @default(cuid())
+  videoId   String
+  day       DateTime // store day-start UTC
+  views     Int      @default(0)
+  likes     Int      @default(0)
+  shares    Int      @default(0)
+  comments  Int      @default(0)
+  stars     Int      @default(0)
+  gifts     Int      @default(0)
+
+  // Analytics (watch / retention)
+  uniqueViews   Int      @default(0)
+  watchSeconds  Int      @default(0)
+  completes     Int      @default(0)
+  avgWatchPct   Int      @default(0) // 0..10000 (basis points)
+
+  // CTR (thumbnail/card impressions)
+  impressions   Int      @default(0)
+  clicks        Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day])
+  @@index([day])
+  @@index([videoId, day])
+}
+
+
+// =============================
+// Analytics (MVP)
+// =============================
+
+enum VideoRetentionThreshold {
+  P25
+  P50
+  P75
+  P90
+  P95
+}
+
+model VideoMetricHourly {
+  id           String   @id @default(cuid())
+  videoId      String
+  hour         DateTime // hour-start UTC
+  views        Int      @default(0)
+  uniqueViews  Int      @default(0)
+  watchSeconds Int      @default(0)
+  completes    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  video        Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, hour])
+  @@index([hour])
+  @@index([videoId, hour])
+}
+
+model VideoAudienceCountryDaily {
+  id           String   @id @default(cuid())
+  videoId      String
+  day          DateTime // day-start UTC
+  country      String   // ISO-2 (e.g. VN, US) or ZZ
+  views        Int      @default(0)
+  uniqueViews  Int      @default(0)
+  watchSeconds Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  video        Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day, country])
+  @@index([day])
+  @@index([videoId, day])
+}
+
+model VideoRetentionDaily {
+  id        String                  @id @default(cuid())
+  videoId   String
+  day       DateTime                // day-start UTC
+  threshold VideoRetentionThreshold
+  sessions  Int                     @default(0)
+  createdAt DateTime                @default(now())
+
+  video     Video                   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day, threshold])
+  @@index([day])
+  @@index([videoId, day])
+}
+
+
+
+enum TrafficSource {
+  HOME
+  FEED
+  SEARCH
+  EXPLORE
+  TRENDING
+  PLAYLIST
+  CHANNEL
+  EXTERNAL
+  UNKNOWN
+}
+
+model VideoTrafficSourceDaily {
+  id          String        @id @default(cuid())
+  videoId     String
+  day         DateTime      // day-start UTC
+  source      TrafficSource
+  impressions Int           @default(0)
+  clicks      Int           @default(0)
+  createdAt   DateTime      @default(now())
+
+  video       Video         @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day, source])
+  @@index([day])
+  @@index([videoId, day])
+  @@index([source, day])
+}
+enum VideoExperimentStatus {
+  DRAFT
+  RUNNING
+  PAUSED
+  ENDED
+}
+
+enum VideoExperimentType {
+  THUMBNAIL_TITLE
+}
+
+model VideoExperiment {
+  id          String                 @id @default(cuid())
+  videoId     String
+  createdById String
+  type        VideoExperimentType    @default(THUMBNAIL_TITLE)
+  status      VideoExperimentStatus  @default(DRAFT)
+  startedAt   DateTime?
+  endedAt     DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  video       Video                  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  createdBy   User                   @relation("VideoExperimentCreatedBy", fields: [createdById], references: [id], onDelete: Cascade)
+  variants    VideoExperimentVariant[]
+
+  @@index([videoId, status])
+  @@index([createdById, createdAt])
+}
+
+model VideoExperimentVariant {
+  id           String   @id @default(cuid())
+  experimentId String
+  name         String   // "A", "B"...
+  title        String?
+  thumbKey     String?
+  weight       Int      @default(50) // simple equal-weight MVP
+  exposures    Int      @default(0)
+  views        Int      @default(0)
+  watchSeconds Int      @default(0)
+  completes    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  experiment   VideoExperiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, name])
+  @@index([experimentId])
+}
+model BoostPlan {
+  id             String        @id @default(cuid())
+  name           String        @unique
+  type           BoostPlanType @default(DURATION)
+
+  durationDays   Int?          // for DURATION
+  targetViews    Int?          // for TARGET_INTERACTIONS
+  targetLikes    Int?
+  targetShares   Int?
+  targetComments Int?
+  targetStars    Int?
+  targetGifts    Int?
+
+  priceStars     Int           @default(100)
+  active         Boolean       @default(true)
+  sort           Int           @default(0)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  orders         BoostOrder[]
+}
+
+model BoostOrder {
+  id           String      @id @default(cuid())
+  userId       String
+  videoId      String
+  planId       String
+  status       BoostStatus @default(ACTIVE)
+
+  startAt      DateTime    @default(now())
+  endAt        DateTime?
+  priceStars   Int         @default(0)
+
+  // Baseline at boost start
+  baseViews    Int         @default(0)
+  baseLikes    Int         @default(0)
+  baseShares   Int         @default(0)
+  baseComments Int         @default(0)
+  baseStars    Int         @default(0)
+  baseGifts    Int         @default(0)
+
+  // Counters during boost window (incremental)
+  statViews    Int         @default(0)
+  statLikes    Int         @default(0)
+  statShares   Int         @default(0)
+  statComments Int         @default(0)
+  statStars    Int         @default(0)
+  statGifts    Int         @default(0)
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video        Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  plan         BoostPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([status, startAt])
+  @@index([videoId, status])
+  @@index([userId, status])
+}
+
+
+// =============================
+// Subscriptions + Community
+// =============================
+
+model Subscription {
+  id            String   @id @default(cuid())
+  subscriberId  String
+  channelUserId String
+  createdAt     DateTime @default(now())
+
+  subscriber    User @relation("SubscriptionsOut", fields: [subscriberId], references: [id], onDelete: Cascade)
+  channelUser   User @relation("SubscriptionsIn", fields: [channelUserId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriberId, channelUserId])
+  @@index([channelUserId, createdAt])
+  @@index([subscriberId, createdAt])
+}
+
+model CommunityPost {
+  id          String            @id @default(cuid())
+  authorId    String
+  type        CommunityPostType @default(TEXT)
+
+  text        String?           @db.Text
+  mediaUrl    String?
+  linkUrl     String?
+  youtubeUrl  String?
+
+  pollQuestion String?          @db.Text
+
+  // Soft delete (do not break SEO/history, allow future moderation).
+  isDeleted   Boolean           @default(false)
+
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  author      User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  pollOptions CommunityPollOption[]
+  pollVotes   CommunityPollVote[]
+
+  @@index([authorId, createdAt])
+  @@index([createdAt])
+}
+
+model CommunityPollOption {
+  id        String   @id @default(cuid())
+  postId    String
+  text      String
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  votes     CommunityPollVote[]
+
+  @@index([postId, sort])
+}
+
+model CommunityPollVote {
+  id        String   @id @default(cuid())
+  postId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  option    CommunityPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId, createdAt])
+}
+
+// =============================
+// Membership usage
+// =============================
+
+model PremiumBenefitUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  month     String   // YYYY-MM
+  freeBoostsUsed Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+  @@index([month])
+}
+
+// =============================
+// NFT Marketplace (internal)
+// =============================
+
+model NftCollection {
+  id        String   @id @default(cuid())
+  creatorId String
+  title     String
+  description String @db.Text
+  imageKey  String?
+
+  royaltyBps Int @default(500)
+  creatorRoyaltySharePct Int @default(50) // 20/50/80
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator   User @relation("NftCollectionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  items     NftItem[]
+
+  @@index([creatorId, createdAt])
+}
+
+model NftItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  videoId      String?
+  clipId       String?
+
+  ownerId      String
+
+  name         String
+  description  String @db.Text
+  imageKey     String?
+  animationUrl String?
+
+  verificationStatus NftVerificationStatus @default(UNVERIFIED)
+
+  exportStatus NftExportStatus @default(NONE)
+  exportChain  Chain?
+  marketplaceFrozen Boolean @default(false)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  collection   NftCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  video        Video? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  clip         Clip?  @relation(fields: [clipId], references: [id], onDelete: SetNull)
+  owner        User @relation("NftItemOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  listings     NftListing[]
+  auctions     NftAuction[]
+  sales        NftSale[]
+  exportRequests NftExportRequest[]
+
+  @@index([ownerId, createdAt])
+  @@index([collectionId, createdAt])
+  @@index([videoId])
+  @@index([clipId])
+  @@unique([videoId])
+  @@unique([clipId])
+}
+
+model NftListing {
+  id        String          @id @default(cuid())
+  itemId    String
+  sellerId  String
+  priceStars Int
+  status    NftListingStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  soldAt    DateTime?
+  cancelledAt DateTime?
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  sale      NftSale?
+
+  @@index([status, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([itemId, status])
+}
+
+model NftAuction {
+  id        String          @id @default(cuid())
+  itemId    String
+  sellerId  String
+
+  startPriceStars Int
+  reservePriceStars Int?
+
+  startAt   DateTime @default(now())
+  endAt     DateTime
+  status    NftAuctionStatus @default(ACTIVE)
+
+  highestBidId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftAuctionSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  bids      NftBid[]
+  highestBid NftBid? @relation("AuctionHighestBid", fields: [highestBidId], references: [id], onDelete: SetNull)
+  sale      NftSale?
+
+  @@index([status, endAt])
+  @@index([sellerId, createdAt])
+  @@index([itemId, status])
+}
+
+model NftBid {
+  id        String   @id @default(cuid())
+  auctionId String
+  bidderId  String
+  amountStars Int
+  holdId    String? @unique
+  createdAt DateTime @default(now())
+
+  auction   NftAuction @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  bidder    User @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  hold      StarHold? @relation(fields: [holdId], references: [id], onDelete: SetNull)
+
+  @@index([auctionId, createdAt])
+  @@index([bidderId, createdAt])
+}
+
+model StarHold {
+  id        String        @id @default(cuid())
+  userId    String
+  amountStars Int
+  status    StarHoldStatus @default(HELD)
+  reason    String
+  refType   String?
+  refId     String?
+  releaseAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, releaseAt])
+  @@index([userId, createdAt])
+  @@index([refType, refId])
+}
+
+model NftSale {
+  id        String   @id @default(cuid())
+  itemId    String
+  buyerId   String
+  sellerId  String
+  priceStars Int
+
+  platformFeeStars Int
+  royaltyStars     Int
+  creatorRoyaltyStars Int
+  authorRoyaltyStars  Int
+  sellerProceedsStars Int
+
+  listingId String?
+  auctionId String?
+
+  createdAt DateTime @default(now())
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  buyer     User @relation("NftSaleBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller    User @relation("NftSaleSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  listing   NftListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  auction   NftAuction? @relation(fields: [auctionId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([sellerId, createdAt])
+  @@index([buyerId, createdAt])
+}
+
+model NftExportRequest {
+  id        String   @id @default(cuid())
+  itemId    String
+  userId    String
+
+  chain     Chain
+  metadataStrategy NftMetadataStrategy @default(PUBLIC_URL)
+  includeVideoInIpfs Boolean @default(false)
+
+  status    NftExportStatus @default(PENDING)
+  tokenIdHex String?
+  tokenUri  String?
+  contractAddress String?
+
+  txHash    String?
+  mintedRef String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  item      NftItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+  @@index([itemId, createdAt])
+}
+
+model NftChainContract {
+  id        String @id @default(cuid())
+  chain     Chain  @unique
+  address   String
+  isPrimary Boolean @default(false)
+
+  pendingAddress String?
+  pendingApplyAt DateTime?
+  pendingSetById String?
+  pendingSetBy   User? @relation(fields: [pendingSetById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model NftEventLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  dataJson  String   @db.Text
+  createdAt DateTime @default(now())
+
+  actor     User? @relation("NftEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+}
+
+
+// -------------------------
+// Storage redundancy (R2 primary + FTP backups + Google Drive origin)
+
+enum StorageHealthStatus {
+  UNKNOWN
+  OK
+  DEGRADED
+  DOWN
+  REBUILDING
+}
+
+enum StorageSecretType {
+  FTP_ORIGIN
+  FTP_HLS
+  DRIVE_SERVICE_ACCOUNT
+}
+
+model StorageEndpointConfig {
+  id Int @id @default(1)
+
+  // Primary storage (R2). R2 creds/base URL are still provided via env.
+  r2Enabled Boolean @default(true)
+
+  // FTP Origin backup (MP4 source)
+  ftpOriginEnabled Boolean @default(false)
+  ftpOriginUploadEnabled Boolean @default(false)
+  ftpOriginHost String?
+  ftpOriginPort Int? @default(21)
+  ftpOriginUser String?
+  ftpOriginBasePath String? // remote folder prefix
+  ftpOriginPublicBaseUrl String? // optional, mainly for operator use
+  ftpOriginSecretId String?
+
+  // FTP HLS backup (playlists/segments) - used for playback fallback when R2/CDN is down
+  ftpHlsEnabled Boolean @default(false)
+  ftpHlsUploadEnabled Boolean @default(false)
+  ftpHlsHost String?
+  ftpHlsPort Int? @default(21)
+  ftpHlsUser String?
+  ftpHlsBasePath String?
+  ftpHlsPublicBaseUrl String? // required if ftpHlsEnabled, used in watch fallback
+  ftpHlsSecretId String?
+
+  // Google Drive origin backup (service account)
+  driveEnabled Boolean @default(false)
+  driveFolderId String?
+  driveSecretId String?
+
+  // Pending change (applies after delay)
+  pendingJson String? @db.Text
+  pendingApplyAt DateTime?
+  pendingSetById String?
+  pendingSetBy User? @relation(fields: [pendingSetById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pendingApplyAt])
+}
+
+model StorageSecret {
+  id String @id @default(cuid())
+  type StorageSecretType
+  name String?
+  encryptedJson String @db.Text
+  createdById String?
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+}
+
+model VideoAsset {
+  id String @id @default(cuid())
+  videoId String @unique
+  driveFileId String?
+  healthStatus StorageHealthStatus @default(UNKNOWN)
+  lastHealthAt DateTime?
+  lastError String? @db.Text
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([healthStatus, lastHealthAt])
+}
+
+
+
+// -------------------------
+// Task 13: Video chapters
+model VideoChapter {
+  id        String   @id @default(cuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  startSec  Int
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([videoId, startSec])
+  @@index([videoId, startSec])
+}
+
+// -------------------------
+// Task 11: Creator monetization (tips in stars)
+model CreatorTip {
+  id             String   @id @default(cuid())
+  fromUserId     String
+  toUserId       String
+  stars          Int
+  message        String?  @db.Text
+  starTxId       String?  @unique
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  fromUser User @relation("CreatorTipFrom", fields: [fromUserId], references: [id], onDelete: Cascade)
+  toUser   User @relation("CreatorTipTo", fields: [toUserId], references: [id], onDelete: Cascade)
+  starTx   StarTransaction? @relation(fields: [starTxId], references: [id], onDelete: SetNull)
+
+  @@unique([fromUserId, idempotencyKey])
+  @@index([toUserId, createdAt])
+}
+
+// -------------------------
+// Task 12: Gamification
+model XpEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceKey String
+  amount    Int
+  metaJson  String?  @db.Text
+  createdAt DateTime @default(now())
+
+  @@unique([userId, sourceKey])
+  @@index([userId, createdAt])
+}
+
+model Badge {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?  @db.Text
+  icon        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeId   String
+  earnedAt  DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId, earnedAt])
+}
+
+model DailyTaskProgress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  day       DateTime
+  key       String
+  progress  Int      @default(0)
+  goal      Int      @default(1)
+  done      Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day, key])
+  @@index([day])
+}
+
+// -------------------------
+// Task 14: Creator webhooks (outbox + deliveries)
+model CreatorWebhookEndpoint {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url        String
+  secret     String
+  eventsCsv  String   @default("")
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  deliveries CreatorWebhookDelivery[]
+
+  @@index([userId, enabled])
+}
+
+model CreatorWebhookDelivery {
+  id            String   @id @default(cuid())
+  endpointId    String
+  endpoint      CreatorWebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType     String
+  payloadJson   String   @db.Text
+  status        String   @default("PENDING") // PENDING|SENT|FAILED
+  attempt       Int      @default(0)
+  lastError     String?  @db.Text
+  nextAttemptAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+}
+
+model NotificationSetting {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  disabledTypesCsv String   @default("")
+  updatedAt        DateTime @updatedAt
+
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+}
+
+model CreatorModerationSetting {
+  id          String   @id @default(cuid())
+  creatorId   String   @unique
+  keywordsCsv String   @default("") @db.Text
+  updatedAt   DateTime @updatedAt
+
+  creator     User     @relation("CreatorModerationSetting", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
+}
+
+model ModerationAction {
+  id           String               @id @default(cuid())
+  type         ModerationActionType
+  actorUserId  String
+  targetUserId String?
+  videoId      String?
+  commentId    String?
+  reason       String?              @db.Text
+  createdAt    DateTime             @default(now())
+
+  actor        User                 @relation("ModerationActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  target       User?                @relation("ModerationTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+  video        Video?               @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  comment      Comment?             @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([videoId, createdAt])
+  @@index([commentId, createdAt])
+}
+
+model CommentReport {
+  id         String      @id @default(cuid())
+  commentId  String
+  reporterId String
+  reason     String?     @db.Text
+  status     ReportStatus @default(OPEN)
+  reviewerId String?
+  reviewedAt DateTime?
+  createdAt  DateTime    @default(now())
+
+  comment    Comment     @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reporter   User        @relation("CommentReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewer   User?       @relation("CommentReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@unique([commentId, reporterId])
+  @@index([status, createdAt])
+  @@index([commentId, createdAt])
+}
+model CreatorMembershipPlan {
+  id          String   @id @default(cuid())
+  userId      String
+  tier        CreatorMembershipTier @default(BRONZE)
+  title       String
+  starsPrice  Int
+  durationDays Int     @default(30)
+  benefits    String?  @db.Text
+  isActive    Boolean  @default(true)
+  sort        Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation("CreatorMembershipPlans", fields: [userId], references: [id], onDelete: Cascade)
+  memberships CreatorMembership[]
+
+  @@unique([userId, tier])
+  @@index([userId, isActive, sort])
+}
+model CreatorMembership {
+  id          String   @id @default(cuid())
+  planId      String
+  userId      String   // member
+  creatorId   String   // denormalized: plan owner
+  startsAt    DateTime @default(now())
+  expiresAt   DateTime
+  status      CreatorMembershipStatus @default(ACTIVE)
+  source      CreatorMembershipSource @default(PAID)
+  cancelAtPeriodEnd Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plan        CreatorMembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user        User    @relation("CreatorMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  creator     User    @relation("CreatorMembershipCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, userId])
+  @@index([creatorId, status, expiresAt])
+  @@index([userId, status, expiresAt])
+}
+
+// One invoice per membership per monthKey for idempotency (recurring billing).
+model CreatorMembershipInvoice {
+  id           String   @id @default(cuid())
+  membershipId String
+  monthKey     String
+  stars        Int
+  starTxId     String?  @unique
+  createdAt    DateTime @default(now())
+
+  membership   CreatorMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, monthKey])
+  @@index([monthKey, createdAt])
+}
+
+// Premium video unlock (one-time purchase via Stars).
+model VideoUnlock {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  starsCost       Int
+  discountReason String? @db.VarChar(60)
+  starTxId        String?  @unique
+  createdAt DateTime @default(now())
+
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([videoId, createdAt])
+}
+
+// Creator monthly goals (Stars).
+
+// =============================
+// Wallet linking / NFT gating foundation
+// =============================
+
+model UserWallet {
+  id         String  @id @default(cuid())
+  userId     String
+  chain      Chain
+  address    String  @db.VarChar(120)
+  verifiedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets     UserWalletAsset[]
+
+  @@unique([chain, address])
+  @@index([userId, chain, createdAt])
+}
+
+// Snapshot of on-chain holdings (do NOT query RPC in web requests).
+model UserWalletAsset {
+  id         String  @id @default(cuid())
+  walletId   String
+  chain      Chain
+  assetKey   String  @db.VarChar(250) // token mint or collection/contract address
+  kind       String  @db.VarChar(40)  // TOKEN_MINT | COLLECTION
+  balance    Int     @default(0)      // NFT balance (or token count for gating)
+  rawJson    String? @db.Text
+  lastSyncAt DateTime @default(now())
+
+  wallet     UserWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, assetKey])
+  @@index([chain, assetKey])
+  @@index([walletId, lastSyncAt])
+}
+
+// Creator membership unlock by holding NFTs ("Proof-of-Fandom").
+model NftGateRule {
+  id                String  @id @default(cuid())
+  creatorId          String
+  chain              Chain
+  collectionAddress  String? @db.VarChar(200) // EVM contract / Solana collection (future)
+  tokenMint          String? @db.VarChar(200) // specific mint/token
+  minBalance         Int     @default(1)
+  mapsToTier         CreatorMembershipTier
+  enabled            Boolean @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  creator            User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, enabled, createdAt])
+  @@index([chain, enabled])
+}
+
+// Video premium unlock by owning NFT ("NFT key").
+model VideoNftGate {
+  id                String  @id @default(cuid())
+  videoId            String
+  chain              Chain
+  collectionAddress  String? @db.VarChar(200)
+  tokenMint          String? @db.VarChar(200)
+  enabled            Boolean @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  video              Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, enabled])
+  @@index([chain, enabled])
+}
+
+// Creator Pass config: perks for holders (discounts, exclusive series...)
+model CreatorPassConfig {
+  id                String  @id @default(cuid())
+  creatorId          String @unique
+  chain              Chain
+  collectionAddress  String @db.VarChar(200)
+  perksJson          String @db.Text
+  enabled            Boolean @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  creator            User @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, enabled])
+}
+
+// Clip mint tracking (external on-chain mint handled by worker).
+model ClipNft {
+  id           String        @id @default(cuid())
+  clipId       String        @unique
+  chain        Chain
+  mintAddress  String?       @db.VarChar(200)
+  status       ClipNftStatus @default(PENDING)
+  txHash       String?       @db.VarChar(200)
+  editionSize  Int           @default(1)
+  royaltyBps   Int           @default(500)
+  metadataKey  String?       @db.VarChar(500)
+  thumbKey     String?       @db.VarChar(500)
+  nftItemId    String?
+  attemptCount Int           @default(0)
+  lastAttemptAt DateTime?
+  lastError    String?       @db.Text
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  clip         Clip          @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  nftItem      NftItem?      @relation(fields: [nftItemId], references: [id], onDelete: SetNull)
+  mints        ClipNftMint[]
+
+  @@index([status, createdAt])
+  @@index([chain, createdAt])
+}
+
+// Individual mints for a clip (supports limited editions by minting multiple NFTs with same metadata).
+model ClipNftMint {
+  id        String   @id @default(cuid())
+  clipNftId  String
+  serial     Int
+  mintAddress String @unique @db.VarChar(200)
+  txHash     String? @db.VarChar(200)
+  createdAt  DateTime @default(now())
+
+  clipNft    ClipNft @relation(fields: [clipNftId], references: [id], onDelete: Cascade)
+
+  @@unique([clipNftId, serial])
+  @@index([clipNftId, createdAt])
+}
+
+model UserBadgeNft {
+  id            String         @id @default(cuid())
+  userId        String
+  type          BadgeType
+  season        String?        @db.VarChar(20)
+  chain         Chain
+  mintAddress   String?        @db.VarChar(200)
+  status        BadgeNftStatus @default(PENDING)
+  txHash        String?        @db.VarChar(200)
+  attemptCount  Int            @default(0)
+  lastAttemptAt DateTime?
+  lastError     String?        @db.Text
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, season])
+  @@index([status, createdAt])
+  @@index([type, season])
+}
+
+model CreatorGoal {
+  id          String   @id @default(cuid())
+  creatorId   String
+  monthKey    String
+  title       String
+  targetStars Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  creator     User     @relation("CreatorGoalCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([creatorId, monthKey])
+  @@index([monthKey, creatorId])
+}
+model CreatorMembershipPurchase {
+  id             String   @id @default(cuid())
+  userId         String
+  planId         String
+  creatorId      String
+  stars          Int
+  starTxId       String?
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  user           User     @relation("CreatorMembershipPurchaser", fields: [userId], references: [id], onDelete: Cascade)
+  plan           CreatorMembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  creator        User     @relation("CreatorMembershipPurchaseCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([creatorId, createdAt])
+}
+
+
+enum ClipStatus {
+  PROCESSING
+  READY
+  ERROR
+  DELETED
+}
+
+model Clip {
+  id           String     @id @default(cuid())
+  videoId      String
+  creatorId    String
+  startSec     Int
+  endSec       Int
+  title        String?    @db.VarChar(120)
+  outputKey    String?    @db.VarChar(500)
+  status       ClipStatus @default(PROCESSING)
+  errorMessage String?    @db.VarChar(500)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  video   Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  creator User  @relation("ClipCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  nftItems   NftItem[]
+  clipNft    ClipNft?
+
+  @@index([videoId, createdAt])
+  @@index([creatorId, createdAt])
+  @@index([status, createdAt])
+}

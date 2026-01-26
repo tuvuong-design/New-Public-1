@@ -1,0 +1,134 @@
+{
+  "sections": [
+    {
+      "title": "Overview",
+      "items": [
+        {
+          "slug": "readme",
+          "title": "Docs Home",
+          "file": "README.md"
+        },
+        {
+          "slug": "project-context",
+          "title": "Project Context (1-page)",
+          "file": "PROJECT_CONTEXT.md"
+        },
+        {
+          "slug": "ai-requirements",
+          "title": "AI Requirements Checklist",
+          "file": "AI_REQUIREMENTS.md"
+        },
+        {
+          "slug": "features-ai-map",
+          "title": "Features AI Map",
+          "file": "FEATURES_AI_MAP.md"
+        },
+        {
+          "slug": "prompt-rebuild",
+          "title": "Prompt: Rebuild Project",
+          "file": "PROMPT_REBUILD_PROJECT.md"
+        },
+        {
+          "slug": "task-template",
+          "title": "Task Template Continue",
+          "file": "TASK_TEMPLATE_CONTINUE.md"
+        },
+        {
+          "slug": "contract-checklist",
+          "title": "Contracts Checklist (Anti-drift)",
+          "file": "CONTRACT_CHECKLIST.md"
+        },
+        {
+          "slug": "feature-map",
+          "title": "Feature Map",
+          "file": "FEATURE_MAP.md"
+        },
+        {
+          "slug": "all-features",
+          "title": "All Features (Inventory)",
+          "file": "ALL_FEATURES.txt"
+        },
+        {
+          "slug": "architecture",
+          "title": "Architecture",
+          "file": "ARCHITECTURE.md"
+        },
+        {
+          "slug": "env",
+          "title": "Environment Variables",
+          "file": "ENV.md"
+        },
+        {
+          "slug": "changelog",
+          "title": "Changelog",
+          "file": "CHANGELOG.md"
+        }
+      ]
+    },
+    {
+      "title": "Run & Deploy",
+      "items": [
+        {
+          "slug": "quickstart",
+          "title": "Quickstart",
+          "file": "QUICKSTART.md"
+        },
+        {
+          "slug": "aapanel-deploy",
+          "title": "Deploy aaPanel",
+          "file": "AAPANEL_DEPLOY.md"
+        },
+        {
+          "slug": "worker-ffmpeg",
+          "title": "Worker / ffmpeg",
+          "file": "WORKER_FFMPEG.md"
+        },
+        {
+          "slug": "r2-optimization",
+          "title": "R2 Class A/B Optimization",
+          "file": "R2_OPTIMIZATION.md"
+        },
+        {
+          "slug": "caching",
+          "title": "Caching",
+          "file": "CACHING.md"
+        }
+      ]
+    },
+    {
+      "title": "Features",
+      "items": [
+        {
+          "slug": "similar-videos",
+          "title": "Similar Videos",
+          "file": "SIMILAR_VIDEOS.md"
+        },
+        {
+          "slug": "sensitive-videos",
+          "title": "Sensitive Videos",
+          "file": "SENSITIVE_VIDEOS.md"
+        },
+        {
+          "slug": "superthanks",
+          "title": "Super Thanks",
+          "file": "SUPERTHANKS.md"
+        },
+        {
+          "slug": "ads-targeting",
+          "title": "Ads Targeting",
+          "file": "ADS_TARGETING.md"
+        }
+      ]
+    },
+    {
+      "title": "History",
+      "items": [
+        {
+          "slug": "history",
+          "title": "v1.0.0 → v3.9.0 (merged)",
+          "file": "HISTORY_v1.0.0_to_v3.9.0.md"
+        }
+      ]
+    }
+  ]
+}
