@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { canInteractWithVideoDb, canViewVideoDb } from "@/lib/videoAccessDb";
 import { grantXp } from "@/lib/gamification/grantXp";
+import { getViewerFanClubTier } from "@/lib/creatorFanClub";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -36,6 +37,10 @@ export async function GET(req: Request) {
   }
 
   const canModerate = Boolean(isAdmin || (viewerId && viewerId === video.authorId));
+
+  const viewerFanClubTier = viewerId && video.authorId && viewerId !== video.authorId
+    ? await getViewerFanClubTier(viewerId, video.authorId)
+    : null;
 
   // Compute TOP SUPPORTER for this video (sum of Super Thanks stars per user).
   // Requirement: show TOP SUPPORTER only for Diamond comment (>50 stars) AND the largest supporter for this video.
@@ -137,7 +142,7 @@ export async function GET(req: Request) {
     };
   });
 
-  return Response.json({ comments: out }, { status: 200 });
+  return Response.json({ comments: out, viewerFanClubTier }, { status: 200 });
 }
 
 export async function POST(req: Request) {

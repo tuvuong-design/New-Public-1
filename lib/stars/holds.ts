@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { applyReferralBonusTx } from "@/lib/referrals";
 
 /**
  * Release all matured StarHold records (status=HELD, releaseAt <= now).
@@ -43,16 +44,29 @@ export async function releaseMaturedHoldsTx(tx: Prisma.TransactionClient, userId
   for (const h of holds) {
     const amt = Number(h.amountStars) || 0;
     if (amt <= 0) continue;
-    await tx.starTransaction.create({
+    const st = await tx.starTransaction.create({
       data: {
         userId,
         type: "HOLD_RELEASE",
         delta: amt,
         stars: amt,
         quantity: 1,
-        note: `Release hold ${h.id}\nreason=${h.reason}\nref=${h.refType || ""}:${h.refId || ""}`,
+        note: `Release hold ${h.id}
+reason=${h.reason}
+ref=${h.refType || ""}:${h.refId || ""}`,
       },
+      select: { id: true },
     });
+
+    if (h.reason === "NFT_FIRST_UNVERIFIED_SALE_HOLD") {
+      await applyReferralBonusTx(tx as any, {
+        referredUserId: userId,
+        baseStars: amt,
+        sourceKind: "EARN",
+        sourceId: st.id,
+        baseStarTxId: st.id,
+      });
+    }
   }
 
   return { released: holds.length, releasedStars: total };

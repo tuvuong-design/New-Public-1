@@ -26,6 +26,12 @@ const schema = z.object({
   R2_BUCKET: z.string().min(1).optional(),
   R2_PUBLIC_BASE_URL: z.string().url().optional(),
 
+  // Player A/B origins (optional)
+  R2_PUBLIC_BASE_URL_A: z.string().url().optional(),
+  R2_PUBLIC_BASE_URL_B: z.string().url().optional(),
+  // 0-100, percent traffic to A (rest to B). If unset, prefer A.
+  R2_AB_SPLIT_PERCENT: z.coerce.number().int().min(0).max(100).optional().default(50),
+
   NEXT_PUBLIC_ENABLE_PWA: z.string().optional().default("true"),
 
   INDEXNOW_ENABLED: z.string().optional().default("false"),

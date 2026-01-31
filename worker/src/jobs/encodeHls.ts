@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { prisma } from "../prisma";
 import { tmpdir, rmrf } from "../utils/fs";
-import { CACHE_CONTROL_IMMUTABLE, downloadToFile, uploadDir } from "../utils/r2io";
+import { downloadToFile, uploadDir } from "../utils/r2io";
 import { execCmd } from "../utils/exec";
 import { avoidUpscale, parseLadderJson } from "../utils/hlsLadder";
 import { getStorageShape, decryptSecret, normalizeBasePath } from "../storage/config";
@@ -241,8 +241,8 @@ export async function encodeHls(videoId: string) {
       const prefixTs = `${prefixRoot}/ts`;
       const prefixFmp4 = `${prefixRoot}/fmp4_source`;
 
-      await uploadDir(prefixTs, outDirTs, { cacheControl: CACHE_CONTROL_IMMUTABLE });
-      await uploadDir(prefixFmp4, outDirFmp4, { cacheControl: CACHE_CONTROL_IMMUTABLE });
+      await uploadDir(prefixTs, outDirTs);
+      await uploadDir(prefixFmp4, outDirFmp4);
 
       // Mirror both to FTP HLS (optional)
       try {
@@ -287,7 +287,7 @@ export async function encodeHls(videoId: string) {
     await encodeLadder(outDir, useFmp4, ladder as any);
 
     const prefix = `videos/${videoId}/hls/${encodeId}`;
-    await uploadDir(prefix, outDir, { cacheControl: CACHE_CONTROL_IMMUTABLE });
+    await uploadDir(prefix, outDir);
 
     // Mirror to FTP HLS (optional backup)
     try {

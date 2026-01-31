@@ -4,6 +4,8 @@ import { env } from "../../env";
 import { getPaymentConfigCached } from "./paymentConfig";
 import { jsonRpc, hexToBigInt, topicToAddress } from "./rpc";
 import { evaluateStarsCreditRisk } from "./risk";
+import { applyReferralBonusTx } from "../../lib/referrals";
+import { sendTelegramWorker, fmtDepositAlertTitle } from "../../lib/notify/telegram";
 
 const ERC20_TRANSFER_TOPIC0 = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
@@ -85,10 +87,26 @@ async function getSolanaTransferTo(
   txHash: string,
   toAddress: string,
   tokenMint: string | null,
+  expectedMemo?: string | null,
 ): Promise<string | null> {
   if (!env.SOLANA_RPC_URL) return null;
   const result = await jsonRpc<any>(env.SOLANA_RPC_URL, "getTransaction", [txHash, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
   if (!result) return null;
+
+
+  // Optional memo check (Solana often uses memo=depositId to disambiguate)
+  if (expectedMemo) {
+    const ix: any[] = result?.transaction?.message?.instructions || [];
+    let memo: string | null = null;
+    for (const ins of ix) {
+      const parsed = ins?.parsed;
+      if (parsed && typeof parsed === "object") {
+        const m = parsed?.info?.memo ?? parsed?.memo;
+        if (typeof m === "string" && m.length) { memo = m; break; }
+      } else if (typeof parsed === "string" && parsed.length) { memo = parsed; break; }
+    }
+    if (memo !== expectedMemo) return null;
+  }
 
   const to = toAddress;
   if (!tokenMint) {
@@ -137,46 +155,158 @@ async function getSolanaTransferTo(
 }
 
 async function creditIfPossible(depositId: string) {
+  let notify: { message: string } | null = null;
   await prisma.$transaction(async (tx) => {
     const dep = await tx.starDeposit.findUnique({
       where: { id: depositId },
-      include: { package: true, user: true },
+      include: { package: true, user: true, coupon: true },
     });
     if (!dep) return;
     if (!dep.userId) return;
     if (dep.status === "CREDITED" || dep.status === "REFUNDED") return;
 
-    const stars = dep.package?.stars ?? 0;
-    if (!stars || stars <= 0) return;
+    const baseStars = Math.max(0, Math.trunc(Number(dep.package?.stars ?? 0)));
+    if (baseStars <= 0) return;
+
+    const bundleBonusStars = Math.max(0, Math.trunc(Number((dep.package as any)?.bonusStars ?? 0)));
+
+    // Best-effort coupon bonus for TOPUP.
+    let couponBonusStars = 0;
+    let couponCode = dep.couponCode || null;
+    if (dep.couponId && dep.coupon && couponCode) {
+      const now = new Date();
+      const c = dep.coupon;
+      const active = c.active && (!c.startsAt || c.startsAt <= now) && (!c.endsAt || c.endsAt >= now) && (c.appliesTo === "TOPUP" || c.appliesTo === "ANY");
+      if (active) {
+        const kind = c.kind as any;
+        const val = Number(c.value) || 0;
+        if (kind === "PERCENT") couponBonusStars = Math.floor((baseStars * val) / 100);
+        else couponBonusStars = Math.floor(val);
+        couponBonusStars = Math.max(0, couponBonusStars);
+      } else {
+        couponBonusStars = 0;
+      }
+    }
+
+    const totalCredited = baseStars + bundleBonusStars + couponBonusStars;
 
     // Anti-fraud: rule-based risk checks.
-    const risk = await evaluateStarsCreditRisk({ userId: dep.userId, stars });
+    const risk = await evaluateStarsCreditRisk({ userId: dep.userId, stars: totalCredited });
     if (!risk.ok) {
       await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "NEEDS_REVIEW", failureReason: `risk_${risk.reason}` } });
       await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "RISK_REVIEW", message: `Risk rule triggered: ${risk.reason}` } });
+      notify = { message: `${fmtDepositAlertTitle("Deposit cần kiểm tra (Risk)")}\nDeposit: ${dep.id}\nUser: ${dep.userId}\nReason: risk_${risk.reason}` };
       return;
     }
 
-    // Prevent duplicate credit
-    const existingTx = await tx.starTransaction.findFirst({ where: { depositId: dep.id } });
-    if (existingTx) return;
+    // Idempotency per depositId+type
+    const existingTopup = await tx.starTransaction.findUnique({
+      where: { depositId_type: { depositId: dep.id, type: "TOPUP" } },
+      select: { id: true },
+    }).catch(() => null);
 
-    await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { increment: stars } } });
-    await tx.starTransaction.create({
-      data: {
-        userId: dep.userId,
-        type: "TOPUP",
-        delta: stars,
-        stars,
-        quantity: 1,
-        depositId: dep.id,
-        note: `Auto-credit from deposit ${dep.id}`,
-      },
-    });
-    await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "CREDITED" } });
-    await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "AUTO_CREDIT", message: `Credited ${stars} stars` } });
+    let topupTxId = existingTopup?.id || null;
+    if (!topupTxId) {
+      await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { increment: baseStars } } });
+      const baseTx = await tx.starTransaction.create({
+        data: {
+          userId: dep.userId,
+          type: "TOPUP",
+          delta: baseStars,
+          stars: baseStars,
+          quantity: 1,
+          depositId: dep.id,
+          note: `Auto-credit from deposit ${dep.id}`,
+        },
+        select: { id: true },
+      });
+      topupTxId = baseTx.id;
+    }
+
+    if (bundleBonusStars > 0) {
+      const existing = await tx.starTransaction.findUnique({
+        where: { depositId_type: { depositId: dep.id, type: "BUNDLE_BONUS" } },
+        select: { id: true },
+      }).catch(() => null);
+      if (!existing) {
+        await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { increment: bundleBonusStars } } });
+        await tx.starTransaction.create({
+          data: {
+            userId: dep.userId,
+            type: "BUNDLE_BONUS",
+            delta: bundleBonusStars,
+            stars: bundleBonusStars,
+            quantity: 1,
+            depositId: dep.id,
+            discountReason: "BUNDLE_BONUS",
+            note: JSON.stringify({ v: 1, kind: "BUNDLE_BONUS", depositId: dep.id, baseStars, bundleBonusStars }),
+          },
+        });
+      }
+    }
+
+    if (couponBonusStars > 0 && dep.couponId && couponCode) {
+      const existing = await tx.starTransaction.findUnique({
+        where: { depositId_type: { depositId: dep.id, type: "COUPON_BONUS" } },
+        select: { id: true },
+      }).catch(() => null);
+      if (!existing) {
+        // Ensure redemption limits (best-effort; idempotent by couponId+sourceKind+sourceId)
+        const perUserOk = await tx.couponRedemption.count({ where: { couponId: dep.couponId, userId: dep.userId } });
+        const totalOk = await tx.couponRedemption.count({ where: { couponId: dep.couponId } });
+        const c = dep.coupon;
+        const maxTotal = c?.maxRedemptionsTotal ?? null;
+        const maxPer = c?.maxRedemptionsPerUser ?? null;
+        const allow = (maxTotal == null || totalOk < maxTotal) && (maxPer == null || perUserOk < maxPer);
+        if (allow) {
+          await tx.couponRedemption.create({
+            data: {
+              couponId: dep.couponId,
+              userId: dep.userId,
+              sourceKind: "TOPUP",
+              sourceId: dep.id,
+              starsBonus: couponBonusStars,
+              starsDiscount: 0,
+            },
+          }).catch(() => null);
+
+          await tx.user.update({ where: { id: dep.userId }, data: { starBalance: { increment: couponBonusStars } } });
+          await tx.starTransaction.create({
+            data: {
+              userId: dep.userId,
+              type: "COUPON_BONUS",
+              delta: couponBonusStars,
+              stars: couponBonusStars,
+              quantity: 1,
+              depositId: dep.id,
+              discountReason: `COUPON:${couponCode}`.slice(0, 60),
+              note: JSON.stringify({ v: 1, kind: "COUPON_BONUS", depositId: dep.id, couponId: dep.couponId, couponCode, baseStars, couponBonusStars }),
+            },
+          });
+        } else {
+          await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "COUPON_SKIPPED", message: `Coupon limit reached for ${couponCode}` } });
+        }
+      }
+    }
+
+    // Referral bonus based on total credited preview (base + bonuses)
+    await applyReferralBonusTx(tx as any, {
+      referredUserId: dep.userId,
+      baseStars: totalCredited,
+      sourceKind: "TOPUP",
+      sourceId: dep.id,
+      baseStarTxId: topupTxId || undefined,
+    }).catch(() => null);
+
+    await tx.starDeposit.update({ where: { id: dep.id }, data: { status: "CREDITED", creditedAt: dep.creditedAt || new Date() } });
+    await tx.starDepositEvent.create({ data: { depositId: dep.id, type: "AUTO_CREDIT", message: `Credited ${totalCredited} stars (base=${baseStars}, bundle=${bundleBonusStars}, coupon=${couponBonusStars})` } });
+
+    notify = {
+      message: `${fmtDepositAlertTitle("Nạp sao thành công")}\nDeposit: ${dep.id}\nUser: ${dep.userId}\nChain: ${dep.chain}\nToken: ${(dep as any).tokenId ?? ""}\nTx: ${(dep as any).txHash ?? ""}\n+Stars: ${totalCredited}`,
+    };
   });
 }
+
 
 function withinTolerance(expected: number, actual: number, toleranceBps: number): boolean {
   if (!Number.isFinite(expected) || !Number.isFinite(actual) || expected <= 0) return false;
@@ -208,7 +338,7 @@ export async function reconcileDepositJob(depositId: string) {
     if (!actualStr) {
       if (chain === "SOLANA") {
         const mint = dep.token?.contractAddress ?? null;
-        actualStr = await getSolanaTransferTo(txHash, dep.custodialAddress.address, mint);
+        actualStr = await getSolanaTransferTo(txHash, dep.custodialAddress.address, mint, dep.memo);
       } else if (isEvm(chain)) {
         const tokenContract = dep.token?.contractAddress ?? null;
         const decimals = dep.token?.decimals ?? 18;
@@ -243,6 +373,7 @@ export async function reconcileDepositJob(depositId: string) {
           message: `Expected ${expected} got ${actualStr} (tolerance ${cfg.toleranceBps}bps)`,
         },
       });
+      await sendTelegramWorker(`${fmtDepositAlertTitle("Deposit cần kiểm tra (Amount mismatch)")}\nDeposit: ${dep.id}\nChain: ${dep.chain}\nTx: ${dep.txHash ?? ""}\nExpected: ${expected}\nActual: ${actualStr}\nToleranceBps: ${cfg.toleranceBps}`).catch(() => null);
       return;
     }
 

@@ -1,105 +1,218 @@
-# CHATKITFULL — VideoShare Next.js (App Router) — current v4.16.x
+# CHATKITFULL — VideoShare Next.js (App Router) — v4.16.24
 
-Bạn là **Senior Engineer / Tech Lead** cho dự án VideoShare Next.js (App Router).
+Bạn là **Senior Engineer / Tech Lead** cho dự án VideoShare (Next.js App Router).
+Mục tiêu: AI/chat mới **không lệch roadmap**, **không phá contract**, và triển khai đúng “heavy work chạy worker”.
 
-## SOURCE OF TRUTH (bắt buộc)
+---
+
+## 0) START HERE (copy/paste block cho chat mới)
+
+```text
+Bạn là Senior Engineer/Tech Lead cho dự án VideoShare Next.js App Router (TypeScript).
+Stack bất biến: Next.js app/, Prisma+MySQL, NextAuth (ADMIN/USER), Redis+BullMQ worker/, Cloudflare R2 (S3) + CDN cache (keys versioned/immutable).
+Nguyên tắc: Tác vụ nặng (ffmpeg, reconcile scan, rebuild HLS, mirror) chạy trong worker/; web request chỉ validate + persist minimal + enqueue.
+Contracts phải giữ nguyên: pages /v/[id], /upload, /history, /watch-later, /stars/topup; admin payments pages /admin/payments/* + /admin/docs; webhooks /api/webhooks/(helius|alchemy|quicknode|trongrid opt); stars topup APIs /api/stars/topup/*; similar videos lib/videos/similar.ts + similarCache.ts; Redis keys & payments queue job names.
+Source of truth (luôn bám): PROJECT_CONTEXT.md, AI_REQUIREMENTS.md, CHANGELOG.md, TASK_TEMPLATE_CONTINUE.md, FEATURES_AI_MAP.md, PROMPT_REBUILD_PROJECT.md, ALL_FEATURES.txt (và bản copy trong /docs).
+```
+
+---
+
+## 1) SOURCE OF TRUTH (bắt buộc)
 Mọi quyết định phải bám chặt các file sau (và bản copy trong `/docs/` nếu có):
-- PROJECT_CONTEXT.md
-- AI_REQUIREMENTS.md
-- CHANGELOG.md
-- TASK_TEMPLATE_CONTINUE.md
-- FEATURES_AI_MAP.md
-- PROMPT_REBUILD_PROJECT.md
-- ALL_FEATURES.txt
+- `PROJECT_CONTEXT.md` — overview + flows + env + contracts “tập trung”
+- `AI_REQUIREMENTS.md` — quy tắc triển khai + DoD
+- `CHANGELOG.md` — lịch sử thay đổi
+- `TASK_TEMPLATE_CONTINUE.md` — backlog + trạng thái DONE/PARTIAL/TODO (lộ trình)
+- `FEATURES_AI_MAP.md` + `docs/FEATURE_MAP.md` — map tính năng ↔ files
+- `PROMPT_REBUILD_PROJECT.md` — khi cần rebuild toàn repo
+- `ALL_FEATURES.txt` — danh sách tính năng đầy đủ
 
-## STACK & ARCH (KHÔNG ĐƯỢC PHÁ)
-- Next.js App Router (app/) + TypeScript
-- Tailwind + shadcn-like components (components/ui/*)
+✅ Khi output thay đổi lớn: **update root + /docs copy** và chạy `bash scripts/sync-core-docs.sh`.
+
+---
+
+## 2) STACK & ARCH (KHÔNG ĐƯỢC PHÁ)
+- Next.js App Router (`app/`) + TypeScript
+- Tailwind + shadcn-like components (`components/ui/*`)
 - Prisma + MySQL
-- NextAuth + role ADMIN/USER (admin pages + admin API phải guard)
-- Redis + BullMQ; tác vụ nặng chạy trong /worker (không chạy trong web request)
-- Cloudflare R2 (S3 compatible) + CDN cache; object keys versioned/immutable
+- NextAuth + role `ADMIN/USER`
+  - **Admin pages + admin APIs bắt buộc guard** (không rely UI-only)
+- Redis + BullMQ
+  - Queue names giữ ổn định: `payments`, `storage`, `nft`, `editor`, `analytics`, `moderation`, `cdn`, `creatorWebhooks`, ...
+- Cloudflare R2 (S3 compatible) + CDN cache
+  - **Object keys versioned/immutable** (đổi buildId/encodeId thay vì overwrite)
 
-## CONTRACTS (GIỮ NGUYÊN PATHS)
-Pages chính:
-- User: /v/[id], /upload, /history, /watch-later, /stars/topup
-- Admin payments:
-  /admin/payments, /admin/payments/deposits, /admin/payments/deposits/[id], /admin/payments/unmatched,
-  /admin/payments/events, /admin/payments/webhooks, /admin/payments/config, /admin/docs
+---
 
-API routes quan trọng:
-- Similar: lib/videos/similar.ts + lib/videos/similarCache.ts
+## 3) CONTRACTS (GIỮ NGUYÊN PATHS)
+### Pages (public/user)
+- `/v/[id]`, `/upload`, `/history`, `/watch-later`, `/stars/topup`
+
+### Admin payments pages (contract)
+- `/admin/payments`
+- `/admin/payments/deposits`
+- `/admin/payments/deposits/[id]`
+- `/admin/payments/unmatched`
+- `/admin/payments/events`
+- `/admin/payments/webhooks`
+- `/admin/payments/config`
+- `/admin/docs`
+
+### API routes quan trọng (contract)
+- Similar: `lib/videos/similar.ts` + `lib/videos/similarCache.ts`
 - Stars topup:
-  POST /api/stars/topup/intent
-  POST /api/stars/topup/submit-tx
-  GET  /api/stars/topup/history
-  POST /api/stars/topup/retry
+  - `POST /api/stars/topup/intent`
+  - `POST /api/stars/topup/submit-tx`
+  - `GET  /api/stars/topup/history`
+  - `POST /api/stars/topup/retry`
 - Webhooks:
-  POST /api/webhooks/helius
-  POST /api/webhooks/alchemy
-  POST /api/webhooks/quicknode
-  (optional) POST /api/webhooks/trongrid
+  - `POST /api/webhooks/helius`
+  - `POST /api/webhooks/alchemy`
+  - `POST /api/webhooks/quicknode`
+  - (optional) `POST /api/webhooks/trongrid`
 - Admin payments:
-  GET /api/admin/payments/dashboard
-  GET /api/admin/payments/export/deposits
-  GET /api/admin/payments/export/events
-  GET /api/admin/payments/export/webhooks
-  GET/POST /api/admin/payments/config
-  GET/POST /api/admin/payments/secrets
-  POST /api/admin/payments/deposits/assign-user
-  POST /api/admin/payments/deposits/reconcile
-  POST /api/admin/payments/deposits/manual-credit
-  POST /api/admin/payments/deposits/refund
+  - `GET /api/admin/payments/dashboard`
+  - `GET /api/admin/payments/export/deposits`
+  - `GET /api/admin/payments/export/events`
+  - `GET /api/admin/payments/export/webhooks`
+  - `GET/POST /api/admin/payments/config`
+  - `GET/POST /api/admin/payments/secrets`
+  - `POST /api/admin/payments/deposits/assign-user`
+  - `POST /api/admin/payments/deposits/reconcile`
+  - `POST /api/admin/payments/deposits/manual-credit`
+  - `POST /api/admin/payments/deposits/refund`
 
-WORKER / QUEUES (GIỮ NGUYÊN)
-- Queue: payments
-  - process_webhook_audit
-  - reconcile_deposit
-  - reconcile_stale_scan (repeatable)
-  - retry_dead_letters_scan (repeatable)
-  - alert_cron (repeatable)
+### Worker / queues (GIỮ NGUYÊN — payments)
+Queue `payments`:
+- `process_webhook_audit`
+- `reconcile_deposit`
+- `reconcile_stale_scan` (repeatable)
+- `retry_dead_letters_scan` (repeatable)
+- `alert_cron` (repeatable)
 
-REDIS KEYS (GIỮ NGUYÊN)
-- Similar cache: videoshare:similar:v1:{videoId}
-- Fan-out index: videoshare:similar:index:v1:child:{childId}
-- Rate-limit: videoshare:ratelimit:{bucketKey}
+### Redis keys (GIỮ NGUYÊN)
+- Similar cache: `videoshare:similar:v1:{videoId}`
+- Fan-out index: `videoshare:similar:index:v1:child:{childId}`
+- Rate-limit: `videoshare:ratelimit:{bucketKey}`
 
-## NEW (v4.16.x): Storage redundancy + HLS packaging + Player roadmap
-### Storage redundancy (R2 primary + 2 FTP + Google Drive origin)
-- R2 primary (CDN/custom domain)
-- FTP Origin (MP4 gốc) — optional upload
-- FTP HLS (mirror HLS + fallback playback) — optional upload
-- Google Drive origin (Service Account JSON) — deep backup, dùng rebuild HLS khi R2 + FTP HLS đều hỏng
-- Admin:
-  - /admin/storage: config + verify + test upload + **pending apply sau 24h**
-  - /admin/storage/events: audit feed (ai đổi, lúc nào, from→to)
-- Worker queue: storage
-  - repeatables: apply_pending_config, health_scan
-  - jobs: backup_origin, mirror_hls, rebuild_hls_from_drive
-- Security: mọi thay đổi storage phải **delay 24h** + notify admin + event log.
+✅ Tip: chạy `bash scripts/contract-check.sh` trước khi release.
 
-### HLS packaging (/admin/hls)
-Admin có 3 lựa chọn:
+---
+
+## 4) NON-NEGOTIABLE ENGINEERING RULES
+### 4.1 Server/Client boundary (Next.js)
+- Server Component **không** dùng `onClick/onSubmit`, `useState/useEffect`, `window`, `localStorage`.
+- Nếu cần tương tác: tách Client Component (`"use client"`) hoặc dùng `<form action>` + route handler.
+
+### 4.2 Heavy work phải chạy worker
+- ffmpeg encode, rebuild HLS, mirror FTP, reconcile scans, batch exports, etc → worker queue
+- Web request: validate + persist minimal + enqueue, trả response nhanh.
+
+### 4.3 Idempotency / replay-safe
+- Webhooks retry là bình thường → mọi credit/refund/reconcile phải **idempotent** (unique keys + transaction).
+- Worker jobs phải retry-safe (BullMQ retry + DLQ scan).
+
+### 4.4 Immutable object keys + cache correctness
+- Không overwrite HLS segments/playlist public.
+- Key pattern: `.../{encodeId}/...` hoặc `{buildId}` để CDN cache hit ổn định.
+
+### 4.5 Admin security
+- Admin UI chỉ là view; **API phải guard bằng role**.
+- Config nhạy cảm (storage/NFT contracts) dùng **pending apply 24h + audit + notify**.
+
+---
+
+## 5) CORE FLOWS (tóm tắt)
+### 5.1 Upload → Process → Encode HLS → Publish
+- Upload multipart lên R2
+- Tạo `Video` (PROCESSING)
+- Enqueue worker jobs:
+  - `processVideo` (metadata + thumb/preview)
+  - `encodeHls` (HLS output + update `Video.masterM3u8Key*`)
+- Publish (PUBLISHED) → watch `/v/[id]`
+
+### 5.2 Playback resolution + fallback
+- Default: R2 public base URL + key `Video.masterM3u8Key`
+- Nếu storage redundancy bật + health scan degrade:
+  - fallback sang FTP HLS public base URL
+- (Roadmap) R2 A/B: trả về candidate list, player tự switch khi error/stall.
+
+### 5.3 Payments / Stars pipeline
+- Webhooks ingest → ghi `WebhookAuditLog` + enqueue `process_webhook_audit`
+- Worker:
+  - extract tx → create/update `StarDeposit`
+  - reconcile deposit → credit Stars (idempotent)
+  - scans (stale/retry) chạy repeatable
+  - `alert_cron` chạy repeatable: payments alert + (best-effort) moderation escalation scan
+
+### 5.4 Moderation escalation (v4.16.20+)
+- Worker job: `worker/src/jobs/moderation/escalationScan.ts`
+- Triggered from `payments:alert_cron` (best-effort)
+- Auto mute/ban by strike thresholds + report velocity; optional Discord notify.
+
+### 5.5 Weekly digest (in-app + optional email)
+- Worker: `worker/src/jobs/notifications/weeklyDigest.ts`
+- In-app notification `WEEKLY_DIGEST`
+- Optional email via Resend if `NOTIFICATIONS_WEEKLY_DIGEST_EMAIL_ENABLED=true`
+- User toggle: disable `WEEKLY_DIGEST` / `WEEKLY_DIGEST_EMAIL` in `/settings/notifications`
+
+---
+
+## 6) v4.16.x ROADMAP (high-signal)
+### 6.1 Storage redundancy (DONE)
+- Admin `/admin/storage` (verify + test upload + pending apply 24h) + `/admin/storage/events`
+- Worker queue `storage`: apply_pending_config, health_scan, backup_origin, mirror_hls, rebuild_hls_from_drive
+- Security: delay 24h + notify + audit log
+
+### 6.2 HLS packaging (DONE)
+Admin `/admin/hls`:
 1) TS segments (.ts)
 2) fMP4 (init.mp4 + .m4s)
-3) Hybrid: TS ladder 1080/720/480 + fMP4 “source” (file gốc)
+3) Hybrid: TS ladder 1080/720/480 + fMP4 “source”
+Worker: `worker/src/jobs/encodeHls.ts`
 
-### Player roadmap “PeerTube vibe” + R2 A/B (2 domains)
-- Phase 1: hls.js player (ABR auto + manual quality, smooth switch, stats overlay, retry/backoff + mirror switch R2A/R2B/FTP)
-- Phase 2: R2 A/B custom domains + cache headers chuẩn HLS (segments immutable, playlists short + SWR)
-- Phase 3: P2P optional (PUBLIC only) bằng p2p-media-loader-hlsjs + metrics
+### 6.3 Player roadmap “PeerTube vibe” (TODO - phased)
+- Phase 1 (ROI cao):
+  - hls.js player: ABR + manual quality, smooth switch
+  - stats overlay (bitrate/buffer/dropped frames/origin)
+  - retry/backoff + mirror switch (R2A ↔ R2B ↔ FTP)
+- Phase 2:
+  - R2 A/B domains + cache headers chuẩn HLS
+  - playlists short TTL + SWR; segments immutable
+- Phase 3:
+  - P2P optional (PUBLIC only), metrics
 
-## YÊU CẦU THỰC THI (BẮT BUỘC)
-- Không nói “chờ/làm sau” — làm ngay trong phản hồi.
-- Hoàn tất phải bump version + update CHANGELOG + sync docs core (root + /docs) + xuất ZIP (slim).
-- Tránh lỗi Next.js: Server Component không dùng onClick/onSubmit; tách Client Component hoặc dùng form POST + route handler.
-- Heavy work chạy worker, không chạy trong web request.
+---
 
-## CÁCH CHẠY (DEV)
-docker compose up -d
-npm install
-npm run prisma:generate
-npm run prisma:push
-npm run prisma:seed
-npm run dev
-npm run worker:dev
+## 7) ENV / OPS NOTES (tối thiểu)
+- `.env.example` là baseline.
+- Worker cần chạy riêng:
+  - dev: `npm run worker:dev`
+  - prod: `npm run worker` (sau `npm run build`)
+- Storage redundancy cần `APP_ENCRYPTION_KEY` (32 bytes) để encrypt secrets trong DB.
+- Digest email (optional):
+  - `NOTIFICATIONS_WEEKLY_DIGEST_EMAIL_ENABLED=true`
+  - `RESEND_API_KEY`, `RESEND_FROM_EMAIL`
+- Discord alerts (optional): `DISCORD_ALERT_WEBHOOK_URL`
+
+---
+
+## 8) DEFINITION OF DONE (DoD) cho mọi task
+- Không phá contracts (run `scripts/contract-check.sh`)
+- Update code trực tiếp trên source
+- `npm run build` pass (Next build + worker tsc)
+- Prisma: nếu thay schema → có hướng dẫn migrate/push rõ
+- Bump version + update `CHANGELOG.md`
+- Sync core docs: `bash scripts/sync-core-docs.sh`
+- Export ZIP slim (không kèm node_modules/.next/worker/dist)
+
+
+
+## Roadmap snapshot
+- Phase 1–2 Player: DONE (skip P2P integration for now).
+- Next priorities: Fraud Radar (admin), Season Pass, Referrals, Gift Unlock, Coupons.
+
+
+### New in v4.16.20
+- Share Cards OG: /api/og/video|clip|creator/[id]
+- Notifications: continue_watching_digest (daily, in-app, opt-out)

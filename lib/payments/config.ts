@@ -24,6 +24,14 @@ export async function getOrInitPaymentConfig() {
       submittedStaleMinutes: env.PAYMENTS_SUBMITTED_STALE_MINUTES,
       reconcileEveryMs: env.PAYMENTS_RECONCILE_EVERY_MS,
       allowlistJson: JSON.stringify(DEFAULT_ALLOWLIST),
+
+      // Growth / Monetization defaults
+      seasonPassEnabled: false,
+      seasonPassPriceStars: 300,
+      referralEnabled: false,
+      referralPercent: 5,
+      referralApplyToTopups: true,
+      referralApplyToEarnings: true,
     },
   });
 }

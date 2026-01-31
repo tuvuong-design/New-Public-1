@@ -21,6 +21,24 @@ function toNum(v: FormDataEntryValue | null, d: number) {
   return Number.isFinite(n) && n > 0 ? n : d;
 }
 
+function toPct0to100(v: FormDataEntryValue | null, d: number) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return d;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function cleanUrlHttps(v: FormDataEntryValue | null) {
+  const s = clean(v);
+  if (!s) return "";
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:") return "";
+    return u.toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
 function addHours(d: Date, hours: number) {
   return new Date(d.getTime() + hours * 60 * 60 * 1000);
 }
@@ -46,8 +64,14 @@ function summarizeConfig(cfg: any) {
   const o = cfg?.ftpOrigin || {};
   const h = cfg?.ftpHls || {};
   const d = cfg?.drive || {};
+  const r2p = cfg?.r2Playback || {};
   return {
     r2: Boolean(cfg?.r2Enabled),
+    r2Playback: {
+      a: r2p.publicBaseUrlA || "",
+      b: r2p.publicBaseUrlB || "",
+      split: Number.isFinite(Number(r2p.abSplitPercent)) ? Number(r2p.abSplitPercent) : 50,
+    },
     ftpOrigin: { enabled: !!o.enabled, upload: !!o.uploadEnabled, host: o.host || "", basePath: o.basePath || "" },
     ftpHls: { enabled: !!h.enabled, upload: !!h.uploadEnabled, host: h.host || "", basePath: h.basePath || "", publicBaseUrl: h.publicBaseUrl || "" },
     drive: { enabled: !!d.enabled, folderId: d.folderId || "" },
@@ -68,6 +92,11 @@ export async function POST(req: Request) {
   const row = await getStorageEndpointConfig();
   const currentShape = {
     r2Enabled: row.r2Enabled,
+    r2Playback: {
+      publicBaseUrlA: String(row.r2PublicBaseUrlA || "").trim(),
+      publicBaseUrlB: String(row.r2PublicBaseUrlB || "").trim(),
+      abSplitPercent: Number.isFinite(Number(row.r2AbSplitPercent)) ? Number(row.r2AbSplitPercent) : 50,
+    },
     ftpOrigin: {
       enabled: row.ftpOriginEnabled,
       uploadEnabled: row.ftpOriginUploadEnabled,
@@ -96,6 +125,10 @@ export async function POST(req: Request) {
   };
 
   if (action === "SET_PENDING") {
+    const r2PublicBaseUrlA = cleanUrlHttps(form.get("r2PublicBaseUrlA")) || currentShape.r2Playback.publicBaseUrlA;
+    const r2PublicBaseUrlB = cleanUrlHttps(form.get("r2PublicBaseUrlB")) || currentShape.r2Playback.publicBaseUrlB;
+    const r2AbSplitPercent = toPct0to100(form.get("r2AbSplitPercent"), currentShape.r2Playback.abSplitPercent);
+
     // Parse inputs
     const ftpOriginEnabled = toBool(form.get("ftpOriginEnabled"));
     const ftpOriginUploadEnabled = toBool(form.get("ftpOriginUploadEnabled"));
@@ -156,6 +189,11 @@ export async function POST(req: Request) {
 
     const nextShape = {
       r2Enabled: true,
+      r2Playback: {
+        publicBaseUrlA: r2PublicBaseUrlA,
+        publicBaseUrlB: r2PublicBaseUrlB,
+        abSplitPercent: r2AbSplitPercent,
+      },
       ftpOrigin: {
         enabled: ftpOriginEnabled,
         uploadEnabled: ftpOriginUploadEnabled,
@@ -264,6 +302,10 @@ export async function POST(req: Request) {
       where: { id: 1 },
       data: {
         r2Enabled: true,
+
+        r2PublicBaseUrlA: String((pending as any)?.r2Playback?.publicBaseUrlA || "").trim(),
+        r2PublicBaseUrlB: String((pending as any)?.r2Playback?.publicBaseUrlB || "").trim(),
+        r2AbSplitPercent: Number.isFinite(Number((pending as any)?.r2Playback?.abSplitPercent)) ? Number((pending as any).r2Playback.abSplitPercent) : 50,
         ftpOriginEnabled: !!pending.ftpOrigin.enabled,
         ftpOriginUploadEnabled: !!pending.ftpOrigin.uploadEnabled,
         ftpOriginHost: pending.ftpOrigin.host || "",

@@ -108,6 +108,14 @@ export default async function AdminConfig() {
               <Label htmlFor="storyboardEnabled" className="cursor-pointer">Bật Storyboard preview khi scrub</Label>
             </div>
 
+<div className="flex items-center gap-3">
+  <Checkbox id="playerP2PEnabled" name="playerP2PEnabled" defaultChecked={(cfg as any).playerP2PEnabled} />
+  <Label htmlFor="playerP2PEnabled" className="cursor-pointer">Bật P2P segments (PUBLIC only) — experimental</Label>
+</div>
+<div className="text-xs text-zinc-500">
+  Yêu cầu cài dependency <code>p2p-media-loader-hlsjs</code>. Nếu chưa cài thì player vẫn chạy bình thường (fallback HTTP).
+</div>
+
             <div className="grid gap-2">
               <Label htmlFor="sensitiveDefaultMode">Sensitive videos default</Label>
               <Select

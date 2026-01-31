@@ -1,18 +1,17 @@
-# ADMIN_UI.md — v4.16.6
+# ADMIN_UI.md — v4.16.22
 
-## v4.15.0 — Growth Hacker Phase A
-- CTR tracking: `POST /api/analytics/events` (CARD_IMPRESSION/CARD_CLICK) → queue `analytics`.
-- Studio Analytics: `/studio/analytics`, per-video: `/studio/videos/[id]/analytics`.
+Mục tiêu: liệt kê nhanh **admin pages + admin APIs** theo đúng contract, kèm notes bảo mật (guard, pending apply, audit).
 
-Mục tiêu: liệt kê nhanh **admin pages + admin APIs** theo đúng contract, và file path tương ứng.
+## Guard rules (bắt buộc)
+- Admin pages: `app/admin/*` → **guard bằng role `ADMIN`**
+- Admin APIs: `app/api/admin/*` → **guard bằng role `ADMIN`** (xem `lib/authz.ts`)
+- Không đổi routes/contracts nếu không có migration + update toàn call-sites + contract-check.
 
-## Guard rules
-- Admin pages: `app/admin/*` (server components). Guard bằng role `ADMIN`.
-- Admin APIs: `app/api/admin/*`. Guard bằng role `ADMIN` (xem `lib/authz.ts`).
-- Không đổi routes/contracts nếu không có migration + update toàn call-sites.
+---
 
-## Pages (Admin)
-### Payments (contract)
+## 1) Admin pages
+
+### 1.1 Payments (contract)
 - `/admin/payments` → `app/admin/payments/page.tsx`
 - `/admin/payments/deposits` → `app/admin/payments/deposits/page.tsx`
 - `/admin/payments/deposits/[id]` → `app/admin/payments/deposits/[id]/page.tsx`
@@ -20,41 +19,46 @@ Mục tiêu: liệt kê nhanh **admin pages + admin APIs** theo đúng contract,
 - `/admin/payments/events` → `app/admin/payments/events/page.tsx`
 - `/admin/payments/webhooks` → `app/admin/payments/webhooks/page.tsx`
 - `/admin/payments/config` → `app/admin/payments/config/page.tsx`
+- `/admin/payments/fraud` → `app/admin/payments/fraud/page.tsx` (Fraud Radar)
+- `/admin/payments/bundles` → `app/admin/payments/bundles/page.tsx` (Topup bonusStars)
+- `/admin/payments/coupons` → `app/admin/payments/coupons/page.tsx` (Topup bonus / Season Pass discount)
 
-### Videos / Moderation
-- `/admin/videos` → `app/admin/videos/page.tsx`
-- `/admin/videos/[id]` → `app/admin/videos/[id]/page.tsx`
+### 1.2 Storage redundancy (R2 + FTP + Drive)
+- `/admin/storage` → `app/admin/storage/page.tsx`
+- `/admin/storage/events` → `app/admin/storage/events/page.tsx`
 
+**Security model:** thay đổi storage config luôn **pending apply 24h** + audit feed + notify admins.
 
+`/admin/storage` hiện quản lý thêm **R2 Playback A/B** (public base URL A/B + split %) dùng cho Watch/Player routing (DB override; fallback env).
 
-**NFT gated + Clip as NFT (Admin config)**
-- `/admin/config` (form `POST /api/admin/site-config`)
-  - `SiteConfig.clipNftMarketplaceMode`: Option 1/2/BOTH (tracking only / marketplace only / both).
-  - `SiteConfig.clipNftOnChainMintEnabled`: bật mint NFT thật on-chain (Solana) cho Clip; worker chạy `nft:clip_mint_nft` (cần `SOLANA_NFT_MINT_ENABLED=true` + `SOLANA_MINT_AUTHORITY_SECRET_JSON`).
-### Site config / Ads
+### 1.3 HLS packaging
+- `/admin/hls` → `app/admin/hls/page.tsx`
+  - TS / fMP4 / Hybrid
+
+### 1.4 Moderation / Reports
+- `/admin/moderation` → `app/admin/moderation/page.tsx`
+- `/admin/moderation/actions` → `app/admin/moderation/actions/page.tsx`
+- `/admin/moderation/keywords` → `app/admin/moderation/keywords/page.tsx`
+- `/admin/reports` → `app/admin/reports/page.tsx`
+- `/admin/reports/comments` → `app/admin/reports/comments/page.tsx`
+
+### 1.5 Site config / Ads
 - `/admin/config` → `app/admin/config/page.tsx`
 - `/admin/ads` → `app/admin/ads/page.tsx`
 
-### Docs
-- `/admin/docs` → `app/admin/docs/page.tsx` + `docs/docs.nav.json`
-
-### Storage (R2 + FTP + Drive)
-- `/admin/storage` → `app/admin/storage/page.tsx` (set pending + apply/cancel, verify)
-- `/admin/storage/events` → `app/admin/storage/events/page.tsx` (audit feed)
-
-### NFT (admin)
+### 1.6 NFT (admin)
 - `/admin/nft/contracts` → `app/admin/nft/contracts/page.tsx`
 - `/admin/nft/events` → `app/admin/nft/events/page.tsx`
 
-Ghi chú bảo mật:
-- Đổi contract theo chain được thực hiện theo 2 bước: **Set pending** → đợi **delay** (`SiteConfig.nftExportContractChangeDelayHours`, default 24h) → **Apply pending (if due)**.
-- Mỗi lần set/apply sẽ:
-  - tạo **SYSTEM notifications** cho tất cả admin
-  - ghi **NftEventLog** (ai đổi, lúc nào, đổi từ đâu sang đâu)
-- NFTs đã export không bị hỏng khi đổi contract: mỗi `NftExportRequest` lưu `contractAddress` tại thời điểm rút.
+### 1.7 Docs (contract)
+- `/admin/docs` → `app/admin/docs/page.tsx`
+  - render từ `docs/docs.nav.json`
 
-## APIs (Admin)
-### Payments (contract)
+---
+
+## 2) Admin APIs
+
+### 2.1 Payments (contract)
 - `GET /api/admin/payments/dashboard` → `app/api/admin/payments/dashboard/route.ts`
 - `GET /api/admin/payments/export/deposits` → `app/api/admin/payments/export/deposits/route.ts`
 - `GET /api/admin/payments/export/events` → `app/api/admin/payments/export/events/route.ts`
@@ -65,58 +69,66 @@ Ghi chú bảo mật:
 - `POST /api/admin/payments/deposits/reconcile` → `app/api/admin/payments/deposits/reconcile/route.ts`
 - `POST /api/admin/payments/deposits/manual-credit` → `app/api/admin/payments/deposits/manual-credit/route.ts`
 - `POST /api/admin/payments/deposits/refund` → `app/api/admin/payments/deposits/refund/route.ts`
+- `GET/POST /api/admin/payments/bundles` → `app/api/admin/payments/bundles/route.ts`
+- `GET/POST /api/admin/payments/coupons` → `app/api/admin/payments/coupons/route.ts`
+- `DELETE /api/admin/payments/coupons/[id]` → `app/api/admin/payments/coupons/[id]/route.ts`
+- `GET /api/admin/payments/fraud/alerts` → `app/api/admin/payments/fraud/alerts/route.ts`
+- `POST /api/admin/payments/fraud/alerts/ack` → `app/api/admin/payments/fraud/alerts/ack/route.ts`
+- `POST /api/admin/payments/fraud/alerts/resolve` → `app/api/admin/payments/fraud/alerts/resolve/route.ts`
 
-
-
-**NFT gated + Clip as NFT (Admin config)**
-- `/admin/config` (form `POST /api/admin/site-config`)
-  - `SiteConfig.clipNftMarketplaceMode`: Option 1/2/BOTH (tracking only / marketplace only / both).
-  - `SiteConfig.clipNftOnChainMintEnabled`: bật mint NFT thật on-chain (Solana) cho Clip; worker chạy `nft:clip_mint_nft` (cần `SOLANA_NFT_MINT_ENABLED=true` + `SOLANA_MINT_AUTHORITY_SECRET_JSON`).
-### Site config / Ads
-- `GET/POST /api/admin/site-config` → `app/api/admin/site-config/route.ts`
-- `GET/POST /api/admin/ad-placement` → `app/api/admin/ad-placement/route.ts`
-
-### Storage (R2 + FTP + Drive)
-- `POST /api/admin/storage/config` → `app/api/admin/storage/config/route.ts` (set pending / apply / cancel)
+### 2.2 Storage redundancy
+- `POST /api/admin/storage/config` → `app/api/admin/storage/config/route.ts`
+  - set pending / apply now / cancel pending (theo rules)
 - `POST /api/admin/storage/ftp/verify` → `app/api/admin/storage/ftp/verify/route.ts`
 - `POST /api/admin/storage/ftp/test-upload` → `app/api/admin/storage/ftp/test-upload/route.ts`
 - `POST /api/admin/storage/drive/verify` → `app/api/admin/storage/drive/verify/route.ts`
 
-### Videos admin actions
-- Update metadata/sensitive flags: `app/api/admin/videos/update-metadata/route.ts`
-- Password gate (admin/owner): `app/api/videos/[id]/password/route.ts`
+> Yêu cầu: `APP_ENCRYPTION_KEY` phải set để encrypt secrets trong DB.
 
-### Moderation admin actions
+### 2.3 HLS packaging
+- `GET/POST /api/admin/hls/config` (tuỳ phiên bản) → `app/api/admin/hls/*`
+- UI `/admin/hls` chỉ là form; encode thực tế do worker `encodeHls`.
+
+### 2.4 Moderation
 - `POST /api/admin/moderation/actions` → `app/api/admin/moderation/actions/route.ts`
 
-### NFT admin actions
+### 2.5 Site config / Ads
+- `GET/POST /api/admin/site-config` → `app/api/admin/site-config/route.ts`
+- `GET/POST /api/admin/ad-placement` → `app/api/admin/ad-placement/route.ts`
+
+### 2.6 NFT contracts rotation
 - `GET/POST /api/admin/nft/contracts` → `app/api/admin/nft/contracts/route.ts`
 
-## Worker: Payments queue (BullMQ)
-Queue: `payments`
-- `process_webhook_audit`
-- `reconcile_deposit`
-- `reconcile_stale_scan` (repeatable)
-- `retry_dead_letters_scan` (repeatable)
-- `alert_cron` (repeatable)
+---
 
-Handlers: `worker/src/jobs/payments/*`
+## 3) Worker hooks liên quan Admin
+### Payments queue (`payments`)
+- repeatables: `reconcile_stale_scan`, `retry_dead_letters_scan`, `alert_cron`
+- `alert_cron` cũng chạy best-effort moderation escalation scan
 
-## Worker: NFT queue (BullMQ)
-Queue: `nft`
-- `nft_export_prepare`
-- `nft_export_verify_tx`
+### Storage queue (`storage`)
+- repeatables: `apply_pending_config`, `health_scan`
+- jobs: `backup_origin`, `mirror_hls`, `rebuild_hls_from_drive`
 
-Handlers: `worker/src/jobs/nft/*`
+---
+Nếu thêm trang admin mới: update file này + `docs/docs.nav.json` (nếu cần show trong `/admin/docs`).
 
 
-## v4.11.0 additions
-- Stars ledger: `/admin/stars/transactions` filters + export.
-- Payments dashboard: ledger-audit counters.
-- Reports: video/comment reports enqueue moderation review queue (worker).
-- CDN smart purge: background purge jobs on video publish/hide/delete/update.
+## Share Cards (OG)
 
-## v4.10.0 additions
-- Comment reports: `/admin/reports/comments`.
-- Fan Club (creator membership) studio page: `/studio/membership`.
-- Notification settings page: `/settings/notifications`.
+- Video: `/api/og/video/[id]`
+- Clip: `/api/og/clip/[id]`
+- Creator: `/api/og/creator/[id]`
+## Growth / Monetization (Payments Config)
+- UI: `/admin/payments/config`
+  - Season Pass: enable + price (Stars)
+  - Referral Stars: enable + percent (1–20) + apply-to TOPUP/EARN
+
+### Related APIs
+- `GET/POST /api/admin/payments/config`
+- Season Pass:
+  - `GET /api/season-pass/status`
+  - `POST /api/season-pass/purchase`
+- Referrals:
+  - `GET /api/referrals/me`
+  - `POST /api/referrals/claim`

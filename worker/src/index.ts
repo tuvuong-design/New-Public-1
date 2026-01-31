@@ -17,6 +17,7 @@ import { reconcileDepositJob } from "./jobs/payments/reconcileDeposit";
 import { reconcileStaleScanJob } from "./jobs/payments/reconcileStaleScan";
 import { retryDeadLettersScanJob } from "./jobs/payments/retryDeadLettersScan";
 import { paymentsAlertCronJob } from "./jobs/payments/alertCron";
+import { watchChainDepositsJob } from "./jobs/payments/watchChainDeposits";
 import { env } from "./env";
 
 import { nftExportPrepareJob } from "./jobs/nft/exportPrepare";
@@ -32,6 +33,7 @@ import { trimVideoJob } from "./jobs/editor/trimVideo";
 import { createClipJob } from "./jobs/editor/createClip";
 import { membershipBillingScanJob } from "./jobs/memberships/billingScan";
 import { weeklyDigestJob } from "./jobs/notifications/weeklyDigest";
+import { continueWatchingDigestJob } from "./jobs/notifications/continueWatchingDigest";
 
 function log(...args: any[]) {
   console.log(new Date().toISOString(), ...args);
@@ -95,6 +97,75 @@ async function ensurePaymentsRepeatableJobs() {
     }
   );
 
+
+
+await paymentsQueue.add(
+  "watch_bsc_deposits",
+  { chain: "BSC" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_BSC_EVERY_MS },
+    jobId: "watch_bsc_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+);
+
+await paymentsQueue.add(
+  "watch_tron_deposits",
+  { chain: "TRON" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_TRON_EVERY_MS },
+    jobId: "watch_tron_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+await paymentsQueue.add(
+  "watch_solana_deposits",
+  { chain: "SOLANA" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_SOLANA_EVERY_MS },
+    jobId: "watch_solana_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+);
+
+// EVM chains (optional): ETHEREUM / POLYGON / BASE
+await paymentsQueue.add(
+  "watch_ethereum_deposits",
+  { chain: "ETHEREUM" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_EVM_EVERY_MS },
+    jobId: "watch_ethereum_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+);
+
+await paymentsQueue.add(
+  "watch_polygon_deposits",
+  { chain: "POLYGON" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_EVM_EVERY_MS },
+    jobId: "watch_polygon_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+);
+
+await paymentsQueue.add(
+  "watch_base_deposits",
+  { chain: "BASE" },
+  {
+    repeat: { every: env.PAYMENTS_WATCH_EVM_EVERY_MS },
+    jobId: "watch_base_deposits",
+    removeOnComplete: true,
+    removeOnFail: 1000,
+  }
+);
+
+  );
+
   await paymentsQueue.add(
     "membership_billing_scan",
     {},
@@ -132,6 +203,17 @@ async function ensureNotificationsRepeatableJobs() {
     {
       repeat: { every: env.NOTIFICATIONS_WEEKLY_DIGEST_EVERY_MS },
       jobId: "weekly_digest",
+      removeOnComplete: true,
+      removeOnFail: 1000,
+    },
+  );
+
+  await notificationsQueue.add(
+    "continue_watching_digest",
+    {},
+    {
+      repeat: { every: env.NOTIFICATIONS_CONTINUE_WATCHING_DIGEST_EVERY_MS },
+      jobId: "continue_watching_digest",
       removeOnComplete: true,
       removeOnFail: 1000,
     },
@@ -268,6 +350,37 @@ const workerPayments = new Worker(
         log("payments.reconcile_stale_scan");
         return reconcileStaleScanJob();
       }
+      case "watch_bsc_deposits": {
+        log("payments.watch_bsc_deposits");
+        await watchChainDepositsJob({ chain: "BSC" });
+        return { ok: true };
+      }
+      case "watch_tron_deposits": {
+        log("payments.watch_tron_deposits");
+        await watchChainDepositsJob({ chain: "TRON" });
+        return { ok: true };
+      }
+
+case "watch_solana_deposits": {
+  log("payments.watch_solana_deposits");
+  await watchChainDepositsJob({ chain: "SOLANA" });
+  return { ok: true };
+}
+case "watch_ethereum_deposits": {
+  log("payments.watch_ethereum_deposits");
+  await watchChainDepositsJob({ chain: "ETHEREUM" });
+  return { ok: true };
+}
+case "watch_polygon_deposits": {
+  log("payments.watch_polygon_deposits");
+  await watchChainDepositsJob({ chain: "POLYGON" });
+  return { ok: true };
+}
+case "watch_base_deposits": {
+  log("payments.watch_base_deposits");
+  await watchChainDepositsJob({ chain: "BASE" });
+  return { ok: true };
+}
       case "retry_dead_letters_scan": {
         log("payments.retry_dead_letters_scan");
         return retryDeadLettersScanJob();
@@ -410,6 +523,8 @@ const workerNotifications = new Worker(
     switch (job.name) {
       case "weekly_digest":
         return weeklyDigestJob();
+      case "continue_watching_digest":
+        return continueWatchingDigestJob();
       default:
         return { ok: true };
     }

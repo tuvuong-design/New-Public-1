@@ -10,6 +10,15 @@ const schema = z.object({
   submittedStaleMinutes: z.coerce.number().int().min(1).max(10_000),
   reconcileEveryMs: z.coerce.number().int().min(30_000).max(24 * 60 * 60 * 1000),
   allowlistJson: z.string().min(2).max(20_000),
+
+  // Growth / Monetization
+  seasonPassEnabled: z.boolean().optional().default(false),
+  seasonPassPriceStars: z.coerce.number().int().min(1).max(1_000_000).optional().default(300),
+
+  referralEnabled: z.boolean().optional().default(false),
+  referralPercent: z.coerce.number().int().min(1).max(20).optional().default(5),
+  referralApplyToTopups: z.boolean().optional().default(true),
+  referralApplyToEarnings: z.boolean().optional().default(true),
 });
 
 function safeJsonObject(s: string) {
@@ -58,6 +67,22 @@ export async function POST(req: Request) {
       submittedStaleMinutes: parsed.data.submittedStaleMinutes,
       reconcileEveryMs: parsed.data.reconcileEveryMs,
       allowlistJson: parsed.data.allowlistJson,
+
+      seasonPassEnabled: parsed.data.seasonPassEnabled,
+      seasonPassPriceStars: parsed.data.seasonPassPriceStars,
+
+      referralEnabled: parsed.data.referralEnabled,
+      referralPercent: parsed.data.referralPercent,
+      referralApplyToTopups: parsed.data.referralApplyToTopups,
+      referralApplyToEarnings: parsed.data.referralApplyToEarnings,
+
+      seasonPassEnabled: parsed.data.seasonPassEnabled,
+      seasonPassPriceStars: parsed.data.seasonPassPriceStars,
+
+      referralEnabled: parsed.data.referralEnabled,
+      referralPercent: parsed.data.referralPercent,
+      referralApplyToTopups: parsed.data.referralApplyToTopups,
+      referralApplyToEarnings: parsed.data.referralApplyToEarnings,
     },
     update: {
       strictMode: parsed.data.strictMode,
@@ -66,6 +91,22 @@ export async function POST(req: Request) {
       submittedStaleMinutes: parsed.data.submittedStaleMinutes,
       reconcileEveryMs: parsed.data.reconcileEveryMs,
       allowlistJson: parsed.data.allowlistJson,
+
+      seasonPassEnabled: parsed.data.seasonPassEnabled,
+      seasonPassPriceStars: parsed.data.seasonPassPriceStars,
+
+      referralEnabled: parsed.data.referralEnabled,
+      referralPercent: parsed.data.referralPercent,
+      referralApplyToTopups: parsed.data.referralApplyToTopups,
+      referralApplyToEarnings: parsed.data.referralApplyToEarnings,
+
+      seasonPassEnabled: parsed.data.seasonPassEnabled,
+      seasonPassPriceStars: parsed.data.seasonPassPriceStars,
+
+      referralEnabled: parsed.data.referralEnabled,
+      referralPercent: parsed.data.referralPercent,
+      referralApplyToTopups: parsed.data.referralApplyToTopups,
+      referralApplyToEarnings: parsed.data.referralApplyToEarnings,
     },
   });
 

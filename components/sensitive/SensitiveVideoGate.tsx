@@ -26,6 +26,8 @@ export default function SensitiveVideoGate({
   storyboard,
   videoId,
   analytics,
+  candidates,
+  p2pEnabled,
 }: {
   mode: SensitiveMode;
   hlsUrl: string;
@@ -35,11 +37,13 @@ export default function SensitiveVideoGate({
   storyboard?: Storyboard;
   videoId?: string;
   analytics?: { experimentId?: string | null; variantId?: string | null } | null;
+  candidates?: Array<{ url: string; origin?: string }>;
+  p2pEnabled?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
 
   if (mode === "SHOW" || revealed) {
-    return <VideoPlayer videoId={videoId} src={hlsUrl} poster={poster} mode={playerMode} storyboard={storyboard} analytics={analytics} />;
+    return <VideoPlayer videoId={videoId} src={hlsUrl} candidates={candidates} poster={poster} mode={playerMode} storyboard={storyboard} analytics={analytics} p2pEnabled={p2pEnabled} />;
   }
 
   const blur = mode === "BLUR";

@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { prisma } from "../../prisma";
 import { tmpdir, rmrf } from "../../utils/fs";
-import { CACHE_CONTROL_IMMUTABLE, uploadDir } from "../../utils/r2io";
+import { uploadDir } from "../../utils/r2io";
 import { execCmd } from "../../utils/exec";
 import { avoidUpscale, parseLadderJson } from "../../utils/hlsLadder";
 import { getStorageShape, decryptSecret, normalizeBasePath } from "../../storage/config";
@@ -144,7 +144,7 @@ export async function rebuildHlsFromDriveJob(args: { videoId: string }) {
     if (res.code !== 0) throw new Error("ffmpeg hls failed: " + res.stderr);
 
     const prefix = `videos/${v.id}/hls/${encodeId}`;
-    await uploadDir(prefix, outDir, { cacheControl: CACHE_CONTROL_IMMUTABLE });
+    await uploadDir(prefix, outDir);
     const masterM3u8Key = `${prefix}/${masterName}`;
 
     // Mirror to FTP HLS (optional)

@@ -1,9 +1,11 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { calcCouponBonusStars, getValidCouponTx, normalizeCouponCode } from "@/lib/coupons";
 
 const schema = z.object({
   packageId: z.string().min(1),
+  couponCode: z.string().min(1).max(64).optional(),
 });
 
 export async function POST(req: Request) {
@@ -32,12 +34,33 @@ export async function POST(req: Request) {
 
   const userId = (session.user as any).id as string;
 
+  let couponId: string | undefined;
+  let couponCode: string | undefined;
+  let couponBonusPreview = 0;
+  if (parsed.data.couponCode) {
+    try {
+      couponCode = normalizeCouponCode(parsed.data.couponCode);
+      const coupon = await prisma.$transaction(async (tx) =>
+        getValidCouponTx(tx as any, { code: couponCode!, userId, appliesTo: "TOPUP" })
+      );
+      couponId = coupon.id;
+      couponBonusPreview = calcCouponBonusStars(coupon as any, pkg.stars);
+    } catch (e: any) {
+      return Response.json({ ok: false, error: e?.message || "COUPON_INVALID" }, { status: 400 });
+    }
+  }
+
+  const bundleBonusPreview = Number((pkg as any).bonusStars || 0);
+  const totalStarsPreview = pkg.stars + Math.max(0, bundleBonusPreview) + Math.max(0, couponBonusPreview);
+
   const deposit = await prisma.starDeposit.create({
     data: {
       userId,
       chain: pkg.chain,
       tokenId: pkg.tokenId,
       packageId: pkg.id,
+      couponId: couponId,
+      couponCode: couponCode,
       custodialAddressId: addr.id,
       expectedAmount: pkg.expectedAmount,
       memo: pkg.chain === "SOLANA" ? "" : undefined,
@@ -66,6 +89,10 @@ export async function POST(req: Request) {
       toAddress: deposit.custodialAddress.address,
       memo,
       stars: deposit.package?.stars || null,
+      bonusStars: (deposit.package as any)?.bonusStars ?? 0,
+      couponBonus: couponBonusPreview,
+      totalStars: totalStarsPreview,
+      couponCode: couponCode || null,
     },
   });
 }

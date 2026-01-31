@@ -1,4 +1,5 @@
 import { prisma } from "../../prisma";
+import { applyReferralBonusTx } from "../../lib/referrals";
 
 function monthKey(d: Date) {
   const y = d.getUTCFullYear();
@@ -86,6 +87,31 @@ export async function membershipBillingScanJob(opts: { renewAheadHours: number }
             note: `creator_membership_renew\ncreatorId=${m.creatorId}\nplanId=${m.planId}\nmonthKey=${mk}\nmembershipId=${m.id}`,
           },
         });
+        // Credit creator income on renew (worker: month scan).
+        await tx.user.update({ where: { id: m.creatorId }, data: { starBalance: { increment: price } } }).catch(() => null);
+        const incomeTx = await tx.starTransaction.create({
+          data: {
+            userId: m.creatorId,
+            delta: price,
+            stars: price,
+            type: "CREATOR_MEMBERSHIP_PURCHASE",
+            note: `creator_membership_renew_income
+fromUserId=${m.userId}
+planId=${m.planId}
+monthKey=${mk}
+membershipId=${m.id}`,
+          },
+          select: { id: true },
+        });
+
+        await applyReferralBonusTx(tx as any, {
+          referredUserId: m.creatorId,
+          baseStars: price,
+          sourceKind: "EARN",
+          sourceId: incomeTx.id,
+          baseStarTxId: incomeTx.id,
+        }).catch(() => null);
+
 
         await tx.creatorMembershipInvoice.create({
           data: { membershipId: m.id, monthKey: mk, stars: price, starTxId: st.id },

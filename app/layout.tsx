@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
 import { env, flags, isConfiguredEnv } from "@/lib/env";
 import SiteHeader from "@/components/layout/SiteHeader";
 import SiteFooter from "@/components/layout/SiteFooter";
@@ -41,7 +42,8 @@ export default async function RootLayout({
     return (
       <html lang="vi">
         <body>
-          <div className="container py-6">
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+<div className="container py-6">
             <div className="card mb-4">
               <div className="text-lg font-extrabold">VideoShare</div>
               <div className="small muted mt-1">
@@ -50,6 +52,7 @@ export default async function RootLayout({
             </div>
             {children}
           </div>
+</ThemeProvider>
         </body>
       </html>
     );

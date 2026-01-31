@@ -4,6 +4,7 @@ import { z } from "zod";
 import { releaseMaturedHoldsTx } from "@/lib/stars/holds";
 import { queues } from "@/lib/queues";
 import { grantXp } from "@/lib/gamification/grantXp";
+import { applyReferralBonusTx } from "@/lib/referrals";
 
 export const runtime = "nodejs";
 
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
       select: { id: true },
     });
 
-    await tx.starTransaction.create({
+    const receiverTx = await tx.starTransaction.create({
       data: {
         userId: body.toUserId,
         delta: body.stars,
@@ -75,6 +76,14 @@ export async function POST(req: Request) {
         note: JSON.stringify({ v: 1, kind: "CREATOR_TIP_IN", fromUserId, message: msg }),
       },
       select: { id: true },
+    });
+
+    await applyReferralBonusTx(tx as any, {
+      referredUserId: body.toUserId,
+      baseStars: body.stars,
+      sourceKind: "EARN",
+      sourceId: receiverTx.id,
+      baseStarTxId: receiverTx.id,
     });
 
     const tip = await tx.creatorTip.create({

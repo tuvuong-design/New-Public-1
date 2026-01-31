@@ -14,7 +14,7 @@ export default async function StudioVideoAccessPage({ params }: { params: { id: 
 
   const video = await prisma.video.findUnique({
     where: { id: params.id },
-    select: { id: true, authorId: true, title: true, access: true, premiumUnlockStars: true },
+    select: { id: true, authorId: true, title: true, access: true, premiumUnlockStars: true, earlyAccessTier: true, earlyAccessUntil: true },
   });
   if (!video) redirect("/studio/videos");
   if (video.authorId !== userId && session?.user?.role !== "ADMIN") redirect("/studio/videos");
@@ -33,6 +33,8 @@ export default async function StudioVideoAccessPage({ params }: { params: { id: 
             videoId={video.id}
             initialAccess={(video.access as any) ?? "PUBLIC"}
             initialPremiumUnlockStars={Number(video.premiumUnlockStars ?? 0)}
+            initialEarlyAccessTier={(video.earlyAccessTier as any) ?? null}
+            initialEarlyAccessUntil={video.earlyAccessUntil ? new Date(video.earlyAccessUntil as any).toISOString() : null}
             initialGates={gates as any}
             nftPremiumUnlockEnabled={Boolean((cfg as any).nftPremiumUnlockEnabled)}
           />

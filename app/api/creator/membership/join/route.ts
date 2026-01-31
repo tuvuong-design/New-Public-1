@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { releaseMaturedHoldsTx } from "@/lib/stars/holds";
+import { applyReferralBonusTx } from "@/lib/referrals";
 
 export const runtime = "nodejs";
 
@@ -61,8 +62,17 @@ export async function POST(req: Request) {
       data: { userId, delta: -plan.starsPrice, type: "CREATOR_MEMBERSHIP_PURCHASE", stars: plan.starsPrice, note: `Join creator membership: ${plan.id}` },
       select: { id: true },
     });
-    await tx.starTransaction.create({
+    const creatorIncomeTx = await tx.starTransaction.create({
       data: { userId: plan.userId, delta: plan.starsPrice, type: "CREATOR_MEMBERSHIP_PURCHASE", stars: plan.starsPrice, note: `Creator membership income: ${plan.id}` },
+      select: { id: true },
+    });
+
+    await applyReferralBonusTx(tx as any, {
+      referredUserId: plan.userId,
+      baseStars: plan.starsPrice,
+      sourceKind: "EARN",
+      sourceId: creatorIncomeTx.id,
+      baseStarTxId: creatorIncomeTx.id,
     });
 
     const now = new Date();

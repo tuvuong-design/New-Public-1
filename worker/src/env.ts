@@ -27,8 +27,37 @@ const schema = z.object({
   PAYMENTS_SUBMITTED_STALE_MINUTES: z.coerce.number().int().positive().optional().default(10),
   PAYMENTS_TOLERANCE_BPS: z.coerce.number().int().min(0).optional().default(50),
 
-  // Notifications
+  PAYMENTS_WATCH_BSC_EVERY_MS: z.coerce.number().int().positive().optional().default(60000),
+  PAYMENTS_WATCH_TRON_EVERY_MS: z.coerce.number().int().positive().optional().default(60000),
+  PAYMENTS_WATCH_SOLANA_EVERY_MS: z.coerce.number().int().positive().optional().default(60000),
+  PAYMENTS_WATCH_EVM_EVERY_MS: z.coerce.number().int().positive().optional().default(60000),
+  PAYMENTS_WATCHER_STALE_MINUTES: z.coerce.number().int().positive().optional().default(10),
+  PAYMENTS_EVM_CONFIRMATIONS: z.coerce.number().int().min(0).optional().default(5),
+  PAYMENTS_WATCH_BLOCK_WINDOW: z.coerce.number().int().positive().optional().default(2000),
+
+  
+  // Telegram notify (best-effort)
+  TELEGRAM_NOTIFY_ENABLED: z.string().optional().default("false"),
+  TELEGRAM_BOT_TOKEN: z.string().optional().default(""),
+  TELEGRAM_CHAT_ID: z.string().optional().default(""),
+
+// Notifications
   NOTIFICATIONS_WEEKLY_DIGEST_EVERY_MS: z.coerce.number().int().positive().optional().default(24 * 60 * 60 * 1000),
+  NOTIFICATIONS_CONTINUE_WATCHING_DIGEST_EVERY_MS: z.coerce.number().int().positive().optional().default(24 * 60 * 60 * 1000),
+  NOTIFICATIONS_CONTINUE_WATCHING_LOOKBACK_DAYS: z.coerce.number().int().positive().optional().default(7),
+  NOTIFICATIONS_CONTINUE_WATCHING_MAX_ITEMS: z.coerce.number().int().positive().optional().default(3),
+  NOTIFICATIONS_CONTINUE_WATCHING_MAX_USERS_PER_RUN: z.coerce.number().int().positive().optional().default(200),
+
+  NOTIFICATIONS_WEEKLY_DIGEST_EMAIL_ENABLED: z.string().optional().default("false"),
+  RESEND_API_KEY: z.string().optional().default(""),
+  RESEND_FROM_EMAIL: z.string().optional().default(""),
+
+  // Moderation escalation (optional)
+  MODERATION_ESCALATION_ENABLED: z.string().optional().default("false"),
+  MODERATION_AUTO_MUTE_STRIKES: z.coerce.number().int().min(0).optional().default(3),
+  MODERATION_AUTO_BAN_STRIKES: z.coerce.number().int().min(0).optional().default(5),
+  MODERATION_REPORT_VELOCITY_WINDOW_MIN: z.coerce.number().int().min(1).optional().default(30),
+  MODERATION_REPORT_VELOCITY_THRESHOLD: z.coerce.number().int().min(1).optional().default(5),
 
   // Creator memberships
   MEMBERSHIP_BILLING_EVERY_MS: z.coerce.number().int().positive().optional().default(3600000),

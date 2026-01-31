@@ -20,6 +20,11 @@ export type StorageDriveConfig = {
 
 export type StorageConfigShape = {
   r2Enabled: boolean;
+  r2Playback: {
+    publicBaseUrlA: string;
+    publicBaseUrlB: string;
+    abSplitPercent: number;
+  };
   ftpOrigin: StorageFtpConfig;
   ftpHls: StorageFtpConfig;
   drive: StorageDriveConfig;
@@ -47,6 +52,9 @@ export async function getStorageEndpointConfig() {
     create: {
       id: 1,
       r2Enabled: true,
+      r2PublicBaseUrlA: "",
+      r2PublicBaseUrlB: "",
+      r2AbSplitPercent: 50,
       ftpOriginEnabled: false,
       ftpOriginUploadEnabled: false,
       ftpOriginHost: "",
@@ -73,6 +81,11 @@ export async function getStorageConfigShape(): Promise<StorageConfigShape> {
   const row = await getStorageEndpointConfig();
   return {
     r2Enabled: row.r2Enabled,
+    r2Playback: {
+      publicBaseUrlA: String(row.r2PublicBaseUrlA || "").trim(),
+      publicBaseUrlB: String(row.r2PublicBaseUrlB || "").trim(),
+      abSplitPercent: Number.isFinite(Number(row.r2AbSplitPercent)) ? Number(row.r2AbSplitPercent) : 50,
+    },
     ftpOrigin: {
       enabled: row.ftpOriginEnabled,
       uploadEnabled: row.ftpOriginUploadEnabled,
@@ -104,7 +117,18 @@ export async function getStorageConfigShape(): Promise<StorageConfigShape> {
 export function parsePending(pendingJson: string | null): StorageConfigShape | null {
   if (!pendingJson) return null;
   try {
-    return JSON.parse(pendingJson) as StorageConfigShape;
+    const raw = JSON.parse(pendingJson) as any;
+    return {
+      r2Enabled: Boolean(raw?.r2Enabled ?? true),
+      r2Playback: {
+        publicBaseUrlA: String(raw?.r2Playback?.publicBaseUrlA || "").trim(),
+        publicBaseUrlB: String(raw?.r2Playback?.publicBaseUrlB || "").trim(),
+        abSplitPercent: Number.isFinite(Number(raw?.r2Playback?.abSplitPercent)) ? Number(raw.r2Playback.abSplitPercent) : 50,
+      },
+      ftpOrigin: raw?.ftpOrigin,
+      ftpHls: raw?.ftpHls,
+      drive: raw?.drive,
+    } as StorageConfigShape;
   } catch {
     return null;
   }

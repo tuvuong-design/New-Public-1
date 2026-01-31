@@ -8,12 +8,19 @@ export const runtime = "nodejs";
 const bodySchema = z.object({
   access: z.enum(["PUBLIC", "UNLISTED", "PREMIUM"]),
   premiumUnlockStars: z.number().int().min(0).max(1_000_000).optional().default(0),
-  gates: z.array(z.object({
-    chain: z.string().min(2).max(20),
-    collectionAddress: z.string().max(200).nullable().optional(),
-    tokenMint: z.string().max(200).nullable().optional(),
-    enabled: z.boolean().optional().default(true),
-  })).optional().default([]),
+  earlyAccessTier: z.enum(["BRONZE", "SILVER", "GOLD"]).nullable().optional().default(null),
+  earlyAccessUntil: z.string().datetime().nullable().optional().default(null),
+  gates: z
+    .array(
+      z.object({
+        chain: z.string().min(2).max(20),
+        collectionAddress: z.string().max(200).nullable().optional(),
+        tokenMint: z.string().max(200).nullable().optional(),
+        enabled: z.boolean().optional().default(true),
+      })
+    )
+    .optional()
+    .default([]),
 });
 
 export async function POST(req: Request, ctx: { params: { id: string } }) {
@@ -32,10 +39,21 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   const cfg = await getSiteConfig();
   const nftPremiumUnlockEnabled = Boolean((cfg as any).nftPremiumUnlockEnabled);
 
+  // Early access applies to PUBLIC only. If any of tier/until is missing => disabled.
+  const earlyTier = body.data.access === "PUBLIC" ? body.data.earlyAccessTier : null;
+  const earlyUntil = body.data.access === "PUBLIC" ? (body.data.earlyAccessUntil ? new Date(body.data.earlyAccessUntil) : null) : null;
+  const normalizeEarlyTier = earlyTier && earlyUntil ? earlyTier : null;
+  const normalizeEarlyUntil = earlyTier && earlyUntil ? earlyUntil : null;
+
   await prisma.$transaction(async (tx) => {
     await tx.video.update({
       where: { id: videoId },
-      data: { access: body.data.access as any, premiumUnlockStars: body.data.premiumUnlockStars },
+      data: {
+        access: body.data.access as any,
+        premiumUnlockStars: body.data.premiumUnlockStars,
+        earlyAccessTier: normalizeEarlyTier as any,
+        earlyAccessUntil: normalizeEarlyUntil,
+      },
     });
 
     if (nftPremiumUnlockEnabled) {

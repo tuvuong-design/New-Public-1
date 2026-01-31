@@ -1,10 +1,21 @@
 VideoShare Next.js – Full Feature & Function Inventory
 Project: VideoShare Next.js v4.x (chia sẻ video)
-Source snapshot: v4.13.0 (codebase hiện tại)  |  Generated: 2026-01-22
+Source snapshot: v4.16.22 (codebase hiện tại)  |  Generated: 2026-01-27
 
 Mục đích
 - Tài liệu này liệt kê toàn bộ tính năng/chức năng có trong code.
 - Dùng để mở chat mới: AI đọc nhanh toàn cảnh modules + routes + worker jobs + contracts.
+
+
+================================================================================
+v4.16.x Delta (so với v4.15.x)
+================================================================================
+- Storage redundancy: Admin /admin/storage + /admin/storage/events (pending apply 24h + audit log + notify) + worker queue `storage`
+  (apply_pending_config, health_scan, backup_origin, mirror_hls, rebuild_hls_from_drive).
+- HLS packaging: Admin /admin/hls chọn TS / fMP4 / Hybrid; worker encodeHls sinh HLS output immutable theo encodeId.
+- Trust & Safety: moderation escalation scan (auto mute/ban theo strike + report velocity) chạy best-effort trong repeatable `payments:alert_cron`.
+- Notifications: weekly digest in-app + optional email via Resend (env-gated) + user toggles trong /settings/notifications.
+- Release hygiene: contract-check script + updated Chat Kit/docs để chat mới AI bám đúng roadmap.
 
 ================================================================================
 v4.4.0 Delta (so với v4.3.x)

@@ -4,6 +4,14 @@ TASK REQUEST
 - ✅ Extra (v4.16.6): Storage redundancy (R2 primary + optional FTP Origin/HLS + Google Drive origin backup) — Admin UI `/admin/storage` (verify + 24h delayed apply + audit log) + worker `storage` queue (mirror HLS, backup MP4, health scan, auto rebuild from Drive).
 - ✅ Extra (v4.16.9): HLS packaging selectable in Admin `/admin/hls` — (1) TS segments (.ts), (2) fMP4 (init.mp4 + .m4s), (3) Hybrid: TS 1080/720/480 + fMP4 "source".
 - ✅ Extra (v4.16.8): Added lockfile placeholder `package-lock.json` (offline-generated). NOTE: regenerate đầy đủ bằng `npm install` trên môi trường có access registry.
+- ✅ Extra (v4.16.19): Watch Later fully implemented: `WatchLaterItem` model + APIs + `/watch-later` UI with resume; watch page action button.
+- ✅ Extra (v4.16.19): Stars Topup page `/stars/topup` now has a functional UI (packages -> intent -> submit tx -> history/retry).
+- ✅ Extra (v4.16.23): **Season Pass 30 ngày** (Stars) + **Referral Stars** (1–20% admin configurable) + coupon discount ledger fields.
+- ✅ Extra (v4.16.24): Bundles/Coupons ARPU:
+  - Topup packages support `bonusStars` + `bundleLabel` and credit flow creates idempotent ledger tx (TOPUP + BUNDLE_BONUS).
+  - Coupons: TOPUP coupon adds bonus stars; Season Pass coupon discounts price; redemptions are recorded.
+  - Admin UI: `/admin/payments/bundles`, `/admin/payments/coupons`.
+  - Manual credit/refund updated to match worker reconcile `(depositId,type)` idempotency.
  (v4.13.0)
 - ✅ Task 1: Sensitive videos (SHOW/BLUR/HIDE), PeerTube-like gate + blur thumbnails + OG warning; admin/user settings; bulk actions; violator-only + interactions lock.
 - ✅ Task 2: Premium/Premium+ (pay in stars) + badge; Premium hides non-boost ads; Premium+ can optionally hide boost ads + free boost quota tracking + comment highlight.
@@ -47,7 +55,7 @@ TASK REQUEST
 - ✅ Extra (v4.13.0): Creator monetization v2 — Fan Club recurring billing (worker), Premium video paywall (membership/unlock), Creator monthly Goals progress bar.
 
 A) Target Version
-- target_version: v4.13.0
+- target_version: v4.16.19
 
 B) Ưu tiên (nếu có)
 - priority_order: 1 → 2 → 3 → 4 → 5 → 6
@@ -184,14 +192,12 @@ F) Output bắt buộc (DoD)
 - Page: `/clip/[id]`
 - Watch page: UI tạo clip đơn giản (start/end/title)
 
-### 🟡 Membership / Fan Club (monthly) — PARTIAL
+### ✅ Membership / Fan Club (monthly) — DONE
 DONE:
 - Prisma: `CreatorMembershipPlan`, `CreatorMembership`, `CreatorMembershipInvoice`
 - APIs: plans + join + billing renew/expire (worker repeatable)
-
-TODO:
-- Badge cạnh tên theo tier (Bronze/Silver/Gold) trên watch/profile (comments đã DONE)
-- Perks: emoji comment theo tier + early access gating UI/logic
+- Badge cạnh tên theo tier (Bronze/Silver/Gold) trên watch + profile + comment UI
+- Perks: emoji comment theo tier + early access gating (PUBLIC) theo `earlyAccessTier/earlyAccessUntil`
 
 ### ✅ Premium / Unlock video bằng Stars — DONE
 - Prisma: `VideoAccess.PREMIUM`, `VideoUnlock`
@@ -199,7 +205,7 @@ TODO:
 - Guard: `canViewVideoDb / canInteractWithVideoDb`
 - Watch UI: Unlock/Join membership gate
 
-### 🟡 Report & Moderation pipeline — PARTIAL (core DONE)
+### ✅ Report & Moderation pipeline — DONE
 DONE:
 - Report API: video/comment report
 - Worker moderation job: notify ops (Discord) + admin review screens `/admin/reports/*`
@@ -208,16 +214,16 @@ DONE:
 - Admin actions: hide/unhide video/comment, strike, mute 7d, ban/unban (POST `/api/admin/moderation/actions`)
 - Keyword filter per creator (`CreatorModerationSetting`), auto-hide comment on create
 
-TODO:
-- Escalation rules + alert_cron integration (ví dụ: auto-ban khi strike >= N, spam velocity)
+DONE (escalation):
+- Auto mute/ban by strike thresholds + report velocity scan (OPEN reports) integrated into worker repeatable `payments:alert_cron`.
 
 ### ✅ Notification center nâng cấp + settings — DONE (core)
 - `NotificationSetting` + `/settings/notifications`
 - Inbox: `/notifications` + APIs `/api/me/notifications`, `/api/me/notifications/read`
 - Worker weekly in-app digest (repeatable job `weekly_digest`)
 
-TODO:
-- Digest email (optional)
+DONE:
+- Digest email (optional) via Resend (env-gated) + user toggle `WEEKLY_DIGEST_EMAIL`.
 
 ### ✅ Search nâng cao: autocomplete + trending queries — DONE
 - API: `/api/search/suggest`, `/api/search/trending`
@@ -245,36 +251,36 @@ DONE:
 
 **Phase 1 — Player core (ROI cao, giống PeerTube nhất)**
 - TODO: Tạo `components/player/VideoPlayerClient.tsx` (`"use client"`) dùng **hls.js** attach `<video>`.
-- TODO: **Quality selector + Auto** (144/360/720/1080 hoặc theo ladder thực tế); smooth switch (không reset playback).
-- TODO: Persist lựa chọn quality (localStorage; optional DB per-user).
-- TODO: “Stats for nerds” overlay: bitrate, dropped frames, buffer, rendition, **origin đang dùng** (R2 A/B vs FTP mirror).
-- TODO: Retry/backoff khi network error; nếu vẫn fail → **switch base URL** (R2 A ↔ R2 B ↔ FTP HLS).
-- TODO: Banner nhẹ khi đang phát từ mirror (backup).
+- DONE (v4.16.16): **Quality selector + Auto** (theo ladder manifest; chọn theo `height`) + switch không reload trang.
+- DONE (v4.16.16): Persist lựa chọn quality (localStorage key `videoshare:player:quality:v1`).
+- DONE (v4.16.16): “Stats for nerds” overlay: origin, rendition, bandwidth estimate, buffer, dropped frames.
+- DONE (v4.16.16): Retry/backoff khi network error; fatal → switch origin (R2 A ↔ R2 B ↔ FTP HLS).
+- DONE (v4.16.16): Banner nhẹ khi đang phát từ origin khác primary.
 
 **Server resolver (candidates)**
-- TODO: `lib/playback/resolveStream.ts` trả về danh sách candidates theo ưu tiên:
+- DONE (v4.16.16): `lib/playback/resolveStream.ts` trả về candidates (R2 A/B + FTP HLS) theo ưu tiên.
   1) R2 A (primary)
   2) R2 B (secondary)
   3) FTP HLS (mirror)
-- TODO: Reorder theo `VideoAsset.healthStatus` (OK/DEGRADED/DOWN) để tránh chọn nguồn chết.
+- DONE (v4.16.16): Reorder theo `VideoAsset.healthStatus` để ưu tiên FTP khi DEGRADED/DOWN.
 
 **Phase 2 — Tối ưu cache HLS trên Cloudflare/R2**
-- TODO: Header strategy:
+- DONE (v4.16.16): Header strategy (worker upload):
   - Segments (`.ts`, `.m4s`, `init.mp4`): `Cache-Control: public, max-age=31536000, immutable`
   - Playlists (`master.m3u8`, `index.m3u8`): `Cache-Control: public, max-age=30, stale-while-revalidate=60` (tuning)
-- TODO: Playlist rewrite (nếu cần) để absolute URLs theo base đang dùng (A/B/FTP) → giảm mixed-origin issues.
-- TODO: Optional prefetch “next 1–2 segments” (rate-limited, không aggressive).
-- TODO: Admin config: `R2_PUBLIC_BASE_URL_A`, `R2_PUBLIC_BASE_URL_B`, `R2_AB_SPLIT_PERCENT` (consistent hash theo userId/videoId).
+- DONE (v4.16.17): Playlist rewrite (loader) để absolute URLs theo base đang dùng (A/B/FTP) → giảm mixed-origin issues.
+- DONE (v4.16.17): Optional prefetch “next 1–2 segments” (rate-limited, không aggressive).
+- DONE (v4.16.17): Admin config (pending apply 24h): `R2_PUBLIC_BASE_URL_A`, `R2_PUBLIC_BASE_URL_B`, `R2_AB_SPLIT_PERCENT` (DB override; fallback env).
 
 **Phase 3 — P2P segments (optional, chỉ PUBLIC/trending)**
-- TODO: Admin flag `playerP2PEnabled` (default OFF) + allowlist video types (PUBLIC only).
+- PARTIAL (v4.16.18): Admin flag `playerP2PEnabled` (default OFF) đã thêm vào SiteConfig + /admin/config. (PUBLIC only). P2P loader integration cần dependency `p2p-media-loader-hlsjs` và sẽ làm ở phase tiếp.
 - TODO: Integrate `p2p-media-loader-hlsjs` (PeerTube ecosystem) vào hls.js loader.
 - TODO: Metrics: % segments from P2P vs HTTP, error rates, average startup time.
 
 **UX “PeerTube-ish”**
-- TODO: Theater mode + mini-player + PiP.
-- TODO: Chapters (timestamps), subtitles selector, hotkeys (J/K/L, arrows, F, M).
-- TODO: Error overlay có nút “Try another mirror”.
+- DONE (v4.16.18): Theater mode + mini-player + PiP.
+- PARTIAL (v4.16.18): Hotkeys (J/K/L, arrows, F, M) — DONE. Chapters/subtitles selector giữ như hiện tại.
+- DONE (v4.16.17): Error overlay có nút “Try another mirror”.
 
 **Acceptance criteria**
 - Player switch quality mượt, không reload trang; có Auto + manual.
@@ -294,11 +300,11 @@ DONE:
 - TODO: **Watch-to-Earn XP** (không token) + leaderboard tuần + cosmetic perks (frame/flair/emoji pack).
 - TODO: **Daily Claim / Daily Spin** (Stars/XP nhỏ) + anti-farm (watch minimum + rate-limit).
 - TODO: **Fan Levels** (Bronze→Legend) dựa trên Stars spent + streak + badges; perks: comment highlight, priority reply.
-- TODO: **Watch Later / History thông minh**: resume giây, auto-next, “continue watching” digest (optional).
+- ✅ DONE (v4.16.20): **Watch Later / History thông minh**: resume giây (v4.16.19) + “continue watching” digest (in-app, daily, optional).
 - TODO: **Creator Drops**: limited unlock window + FOMO (24h, giới hạn số unlock, early access cho holder).
 
 #### NFT / Social prestige
-- TODO: **Share Cards full**: OG images cho video/clip/creator (`/api/og/video/[id]`, `/api/og/clip/[id]`, `/api/og/creator/[id]`).
+- ✅ DONE (v4.16.20): **Share Cards full**: OG images cho video/clip/creator (`/api/og/video/[id]`, `/api/og/clip/[id]`, `/api/og/creator/[id]`).
 - TODO: **Comment Highlights**: creator pin + “Pinned by Creator” badge NFT (non-transferable hoặc low-value).
 - TODO: **Collab Pass**: video collab unlock nếu holder pass của creator A **OR** B (VideoNftGate hỗ trợ OR rules).
 - TODO: **Creator Store**: bán digital items bằng Stars (emoji pack, profile frames, shoutout request).
@@ -311,7 +317,7 @@ DONE:
 - TODO: **Subtitles auto-translate** (worker) + SEO boost (index captions).
 
 #### Trust & Safety / Fraud
-- TODO: **Fraud Radar** (Admin) cho Payments/NFT gating: velocity, many wallets↔many accounts, repeated webhook failures; `alert_cron` mở rộng.
+- ✅ DONE (v4.16.22): **Fraud Radar** (Admin) cho Payments: `/admin/payments/fraud` + alerts (OPEN/ACKED/RESOLVED) + signals (dup txHash, submit rate-limit, large manual credit, webhook fail spike, NEEDS_REVIEW burst) + worker `payments:alert_cron` mở rộng.
 - TODO: **Auto moderation** (heuristics) + throttle new account + admin flagged queue.
 - TODO: **Account security**: new device alert, step-up auth cho actions nhạy cảm (withdraw, link wallet, gifts).
 - TODO: **Invisible watermark** trên clip export để trace leak + anti-reupload signals.

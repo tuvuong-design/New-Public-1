@@ -1,3 +1,33 @@
+## 4.16.24 - 2026-01-28
+### Added
+- Admin (Payments):
+  - **Bundles** config UI: `/admin/payments/bundles` + API `GET/POST /api/admin/payments/bundles` (bonusStars + label per package).
+  - **Coupons** config UI: `/admin/payments/coupons` + APIs `GET/POST /api/admin/payments/coupons`, `DELETE /api/admin/payments/coupons/[id]`.
+  - Payments dashboard links updated to include Bundles/Coupons.
+
+### Fixed
+- Manual credit/refund flow now matches worker reconcile: idempotency by `(depositId, type)`; supports bundle bonus + coupon bonus; refund sums TOPUP/BUNDLE_BONUS/COUPON_BONUS.
+
+### Docs
+- Core docs refreshed (root + `/docs`) to cover Season Pass, Referral bonus, Bundles, Coupons, and aaPanel deploy checklist.
+
+---
+
+## 4.16.23 - 2026-01-27
+### Added
+- **Season Pass 30 ngày** mua bằng Stars:
+  - API: `GET /api/season-pass/status`, `POST /api/season-pass/purchase`
+  - Ledger: `StarTransaction.type=SEASON_PASS_PURCHASE`, `discountReason=SEASON_PASS_30D`
+  - Premium gating: Season Pass cho phép xem/interact với premium videos (site-wide).
+- **Referral Stars** (1–20% do admin cấu hình):
+  - User claim referral: `GET /api/referrals/me`, `POST /api/referrals/claim`
+  - Auto bonus khi user (được giới thiệu) **TOPUP** hoặc **EARN** Stars
+  - Ledger: `StarTransaction.type=REFERRAL_BONUS`, idempotency via `ReferralBonus` unique `(sourceKind, sourceId)`
+- Docs: `docs/AAPANEL_DEPLOY.md` (checklist deploy aaPanel + Prisma rules).
+
+### Changed
+- Payments config (/admin/payments/config) thêm section Growth/Monetization (Season Pass + Referral config).
+
 # CHANGELOG
 
 
@@ -8,6 +38,79 @@
 
 
 
+
+
+
+
+## 4.16.22 - 2026-01-27
+
+### Added
+- Fraud Radar (Admin): `/admin/payments/fraud` + admin APIs to list/ack/resolve fraud alerts.
+- Fraud signals:
+  - Duplicate txHash across deposits → auto mark deposit NEEDS_REVIEW at submit-time + FraudAlert.
+  - submit-tx rate limit (per-user) → FraudAlert.
+  - Large manual credit → FraudAlert.
+- Worker: payments `alert_cron` now also runs `fraudRadarScanJob` to create idempotent alerts for webhook fail spikes / NEEDS_REVIEW bursts / duplicate txHash scans.
+
+### Updated
+- Docs “xương sống” + `CHATKITFULL.txt` updated to reflect Fraud Radar and ops workflow.
+
+## 4.16.20 - 2026-01-27
+
+### Added
+- Share Cards (OG images): `/api/og/video/[id]`, `/api/og/clip/[id]`, `/api/og/creator/[id]`.
+- Daily “Continue Watching” digest (in-app) via worker notifications repeatable job `continue_watching_digest` (opt-out in notification settings).
+
+### Updated
+- `TASK_TEMPLATE_CONTINUE.md` roadmap markers for Share Cards + Continue Watching.
+
+## 4.16.19 - 2026-01-27
+### Added
+- Watch Later: implemented DB model `WatchLaterItem`, APIs (`GET /api/me/watch-later`, `POST /api/me/watch-later/toggle`), and a real `/watch-later` UI with resume support (uses `VideoProgress`).
+- Watch page: added Watch Later toggle button (form-based, no client event handlers) in both desktop and mobile action bars.
+- Stars Topup: implemented functional `/stars/topup` UI that lists active packages, creates deposit intents, submits txHash, and shows history/retry (reuses existing topup APIs).
+- Prisma: added first explicit migration for Watch Later (`prisma/migrations/20260127000000_add_watch_later_item`) so production can use `prisma migrate deploy` incrementally.
+
+## 4.16.18 - 2026-01-27
+### Added
+- Player UX: **Theater mode**, **mini-player** (auto pin when scrolled out while playing), and **PiP** button.
+- Player UX: Hotkeys (PeerTube-ish): **J/K/L**, **ArrowLeft/Right**, **F** (theater), **M** (mute). Ignores keystrokes while typing in inputs.
+- Admin `/admin/config`: new flag `SiteConfig.playerP2PEnabled` (experimental, PUBLIC only). (P2P loader integration requires installing `p2p-media-loader-hlsjs`; fallback HTTP remains default.)
+
+### Fixed
+- Player: removed duplicated segment prefetch handler definitions that could cause TS compile errors.
+
+## 4.16.17 - 2026-01-27
+### Added
+- Player Phase 2: Playlist rewrite (custom hls.js loader) to convert relative URIs inside `.m3u8` into **absolute URLs** rooted at the active origin (R2 A/B or FTP HLS), reducing mixed-origin issues when failover happens.
+- Player Phase 2: Light **prefetch** of the next 1–2 segments (rate-limited) to warm cache and reduce small stalls.
+- Player UX: Fatal error overlay with buttons **Try another mirror** / **Retry**.
+- Admin `/admin/storage`: R2 Playback A/B overrides (public base URL A/B + split %) stored in DB with the existing **pending apply 24h + audit + notify** flow.
+
+### Changed
+- Stream resolver `lib/playback/resolveStream.ts`: now prefers DB overrides for R2 A/B routing (fallback to env).
+
+## 4.16.16 - 2026-01-27
+### Added
+- Player Phase 1 (watch page): HLS **origin failover** (R2 A/B + FTP HLS mirror) with automatic switch on fatal Hls.js errors, plus **quality selector** (Auto / 1080p / 720p…) and **stats overlay** (origin, rendition, bandwidth estimate, buffer, dropped frames).
+- New stream resolver `lib/playback/resolveStream.ts` returning ordered candidates based on video health + A/B split (`R2_PUBLIC_BASE_URL_A/B`, `R2_AB_SPLIT_PERCENT`).
+
+### Changed
+- Worker HLS upload cache headers: **segments immutable** (`max-age=31536000, immutable`) but **playlists short + SWR** (`max-age=30, stale-while-revalidate=60`) for smoother ABR and safer CDN behavior.
+- Updated `.env.example` with optional R2 A/B player env vars.
+
+## 4.16.15 - 2026-01-27
+### Changed
+- Docs refresh (root + `/docs`): updated README, ARCHITECTURE, ADMIN_UI, FEATURE_MAP, AI_UPDATE_GUIDE, and CHATKITFULL so chat mới AI bám đúng roadmap v4.16.x (storage redundancy, HLS packaging, Trust & Safety, player phases).
+- Updated core mapping docs: `FEATURES_AI_MAP.md` and `docs/*` copies; bumped target_version in `TASK_TEMPLATE_CONTINUE.md`.
+
+## 4.16.14 - 2026-01-27
+### Added
+- Worker moderation escalation scan (auto mute/ban by strike thresholds + report velocity) integrated into repeatable `payments:alert_cron`.
+- Weekly digest email (optional) via Resend (env-gated) + Notification Settings toggle `WEEKLY_DIGEST_EMAIL`.
+
+### Changed
+- Updated `TASK_TEMPLATE_CONTINUE.md` to mark Membership, Moderation escalation, and Digest email as DONE.
 
 ## 4.16.13 - 2026-01-26
 ### Added

@@ -362,6 +362,15 @@ export default function PaymentsDashboardClient({
                 <a className="block text-blue-600 underline" href={`/admin/payments/config`}>
                   Payments config
                 </a>
+                <a className="block text-blue-600 underline" href={`/admin/payments/bundles`}>
+                  Bundles (Topup bonus)
+                </a>
+                <a className="block text-blue-600 underline" href={`/admin/payments/coupons`}>
+                  Coupons
+                </a>
+                <a className="block text-blue-600 underline" href={`/admin/payments/fraud`}>
+                  Fraud radar
+                </a>
               </CardContent>
             </Card>
           </div>

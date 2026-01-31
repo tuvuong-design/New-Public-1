@@ -1,4 +1,6 @@
 import { prisma } from "../../prisma";
+import { env } from "../../env";
+import { sendResendEmail } from "../../email/resend";
 
 function startOfWeekLocal(d: Date, offsetMinutes: number) {
   // Convert to local time by offset, then compute Monday 00:00 local, convert back to UTC.
@@ -26,12 +28,21 @@ export async function weeklyDigestJob() {
   const weekStart = startOfWeekLocal(now, offsetMinutes);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  // Disabled users
+  const emailEnabled = env.NOTIFICATIONS_WEEKLY_DIGEST_EMAIL_ENABLED === "true";
+
+  // Disabled users (in-app)
   const disabled = await prisma.notificationSetting.findMany({
     where: { disabledTypesCsv: { contains: "WEEKLY_DIGEST" } },
     select: { userId: true },
   });
   const disabledSet = new Set(disabled.map((x) => x.userId));
+
+  // Disabled users (email)
+  const disabledEmail = await prisma.notificationSetting.findMany({
+    where: { disabledTypesCsv: { contains: "WEEKLY_DIGEST_EMAIL" } },
+    select: { userId: true },
+  });
+  const disabledEmailSet = new Set(disabledEmail.map((x) => x.userId));
 
   // Users already received this week
   const already = await prisma.notification.findMany({
@@ -70,6 +81,26 @@ export async function weeklyDigestJob() {
         },
       });
       created++;
+
+      // Optional email digest (best-effort)
+      if (emailEnabled && !disabledEmailSet.has(u.id)) {
+        const user = await prisma.user.findUnique({ where: { id: u.id }, select: { email: true, name: true } }).catch(() => null);
+        const to = String(user?.email || "").trim();
+        if (to) {
+          const name = user?.name ? String(user.name) : "bạn";
+          const subject = "VideoShare — Tóm tắt tuần";
+          const html = `
+            <div style="font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;line-height:1.6">
+              <h2 style="margin:0 0 8px">Tóm tắt tuần</h2>
+              <p>Chào ${name},</p>
+              <p>Bạn có 1 tóm tắt tuần mới trên VideoShare.</p>
+              <p><a href="${env.SITE_URL}/notifications">Mở Notifications</a></p>
+              <p style="color:#6b7280;font-size:12px">Nếu không muốn nhận email tóm tắt, hãy tắt WEEKLY_DIGEST_EMAIL trong settings.</p>
+            </div>
+          `;
+          await sendResendEmail({ to, subject, html }).catch(() => {});
+        }
+      }
     }
 
     cursor = users[users.length - 1].id;

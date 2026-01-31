@@ -25,6 +25,10 @@ async function postJson(url: string, body: any) {
 
 export default function StorageConfigForm({ row }: { row: Row }) {
   // Current config values
+  const [r2PublicBaseUrlA, setR2PublicBaseUrlA] = useState<string>(String(row.r2PublicBaseUrlA || ""));
+  const [r2PublicBaseUrlB, setR2PublicBaseUrlB] = useState<string>(String(row.r2PublicBaseUrlB || ""));
+  const [r2AbSplitPercent, setR2AbSplitPercent] = useState<string>(String(row.r2AbSplitPercent ?? 50));
+
   const [ftpOriginEnabled, setFtpOriginEnabled] = useState<boolean>(Boolean(row.ftpOriginEnabled));
   const [ftpOriginUploadEnabled, setFtpOriginUploadEnabled] = useState<boolean>(Boolean(row.ftpOriginUploadEnabled));
   const [ftpOriginHost, setFtpOriginHost] = useState<string>(row.ftpOriginHost || "");
@@ -123,6 +127,30 @@ export default function StorageConfigForm({ row }: { row: Row }) {
 
       <form action="/api/admin/storage/config" method="post" className="space-y-4">
         <input type="hidden" name="action" value="SET_PENDING" />
+
+        <div className="space-y-3">
+          <div className="text-sm font-semibold">R2 Playback A/B (Watch/Player)</div>
+          <div className="text-xs text-muted-foreground">
+            Optional override. Nếu để trống sẽ fallback sang env (`R2_PUBLIC_BASE_URL_A/B`, `R2_AB_SPLIT_PERCENT`).
+            Mọi thay đổi vẫn apply sau 24h.
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="r2PublicBaseUrlA">Public base URL A (https)</Label>
+              <Input id="r2PublicBaseUrlA" name="r2PublicBaseUrlA" value={r2PublicBaseUrlA} onChange={(e) => setR2PublicBaseUrlA(e.target.value)} placeholder="https://r2-a.example.com" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="r2PublicBaseUrlB">Public base URL B (https)</Label>
+              <Input id="r2PublicBaseUrlB" name="r2PublicBaseUrlB" value={r2PublicBaseUrlB} onChange={(e) => setR2PublicBaseUrlB(e.target.value)} placeholder="https://r2-b.example.com" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="r2AbSplitPercent">A split percent (0-100)</Label>
+              <Input id="r2AbSplitPercent" name="r2AbSplitPercent" type="number" value={r2AbSplitPercent} onChange={(e) => setR2AbSplitPercent(e.target.value)} placeholder="50" />
+            </div>
+          </div>
+        </div>
+
+        <Separator />
 
         <div className="space-y-3">
           <div className="text-sm font-semibold">FTP Origin (MP4 gốc)</div>

@@ -123,6 +123,8 @@ enum NotificationType {
   BADGE_EARNED
 
   WEEKLY_DIGEST
+
+  CONTINUE_WATCHING_DIGEST
 }
 
 
@@ -210,6 +212,8 @@ enum StarTxType {
   BOOST_PURCHASE
   TOPUP
   REFUND
+  BUNDLE_BONUS
+  COUPON_BONUS
   MEMBERSHIP_PURCHASE
   NFT_MINT
   NFT_SALE
@@ -219,7 +223,21 @@ enum StarTxType {
   CREATOR_MEMBERSHIP_PURCHASE
   PREMIUM_VIDEO_UNLOCK
 
+  SEASON_PASS_PURCHASE
+  REFERRAL_BONUS
+
 }
+
+enum SeasonPassStatus {
+  ACTIVE
+  EXPIRED
+}
+
+enum ReferralSourceKind {
+  TOPUP
+  EARN
+}
+
 
 model User {
   clipsCreated Clip[] @relation("ClipCreator")
@@ -266,6 +284,28 @@ model User {
   starTx      StarTransaction[]
   deposits    StarDeposit[]
   starHolds   StarHold[]
+
+  // PIN bảo mật cho các hành động nhạy cảm (mua NFT, tặng sao, đúc NFT...)
+  pin        UserPin?
+
+
+  // Referrals
+  referralCode String? @unique @db.VarChar(24)
+  referredById String?
+  referredAt   DateTime?
+  referredBy   User? @relation("UserReferredBy", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals    User[] @relation("UserReferredBy")
+
+  referralBonusesAsReferrer ReferralBonus[] @relation("ReferralBonusReferrer")
+  referralBonusesAsReferred ReferralBonus[] @relation("ReferralBonusReferred")
+
+  // Season Pass (site-wide)
+  seasonPass SeasonPass?
+  seasonPassPurchases SeasonPassPurchase[]
+
+  fraudAlerts FraudAlert[] @relation("FraudAlertUser")
+  fraudAlertsAcked FraudAlert[] @relation("FraudAlertAckBy")
+  fraudAlertsResolved FraudAlert[] @relation("FraudAlertResBy")
 
   // Gamification
   xp        Int @default(0)
@@ -417,6 +457,11 @@ model Video {
   // If 0, the video is membership-only.
   premiumUnlockStars Int     @default(0)
 
+  // Early Access (PUBLIC): require Fan Club tier until a date
+  earlyAccessTier  CreatorMembershipTier?
+  earlyAccessUntil DateTime?
+
+
   // If true, disable interactions (like/comment/share/stars/gifts)
   interactionsLocked Boolean @default(false)
 
@@ -491,6 +536,8 @@ model Video {
   updatedAt     DateTime    @updatedAt
 
   @@index([status, access, createdAt])
+  @@index([earlyAccessUntil])
+  @@index([earlyAccessTier, earlyAccessUntil])
   @@index([categoryId, createdAt])
   @@index([channelId, createdAt])
 
@@ -590,6 +637,21 @@ model VideoProgress {
   @@unique([userId, videoId])
 }
 
+// Watch Later (contract page: /watch-later)
+model WatchLaterItem {
+  id        String   @id @default(cuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([userId, createdAt])
+  @@index([videoId, createdAt])
+}
+
 
 model Playlist {
   id          String             @id @default(cuid())
@@ -667,6 +729,9 @@ model SiteConfig {
 
   feedTikTokEnabled      Boolean  @default(false)
   storyboardEnabled      Boolean  @default(false)
+
+  // Player / HLS flags
+  playerP2PEnabled        Boolean  @default(false)
 
   // Default viewer mode for sensitive videos (used for guests / fallback).
   sensitiveDefaultMode   SensitiveMode @default(BLUR)
@@ -795,7 +860,7 @@ model StarTransaction {
 
   videoId   String?
   giftId    String?
-  depositId String?    @unique
+  depositId String?
   note           String?    @db.Text
   discountReason String?    @db.VarChar(60)
   createdAt       DateTime   @default(now())
@@ -809,6 +874,8 @@ model StarTransaction {
   @@index([userId, createdAt])
   @@index([videoId, createdAt])
   @@index([giftId, createdAt])
+  @@unique([depositId, type])
+  @@index([depositId, createdAt])
 }
 
 // =============================
@@ -886,6 +953,8 @@ model StarTopupPackage {
   tokenId           String
   expectedAmount    Decimal  @db.Decimal(36, 18)
   stars             Int
+  bonusStars        Int      @default(0)
+  bundleLabel       String?  @db.VarChar(80)
   active            Boolean  @default(true)
   sort              Int      @default(0)
   createdAt         DateTime @default(now())
@@ -903,6 +972,8 @@ model StarDeposit {
   chain              Chain
   tokenId            String?
   packageId          String?
+  couponId           String?
+  couponCode         String?         @db.VarChar(64)
   custodialAddressId String
   status             DepositStatus   @default(CREATED)
 
@@ -927,16 +998,19 @@ model StarDeposit {
   user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   token              Token?          @relation(fields: [tokenId], references: [id], onDelete: SetNull)
   package            StarTopupPackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
+  coupon             Coupon?          @relation(fields: [couponId], references: [id], onDelete: SetNull)
   custodialAddress   CustodialAddress @relation(fields: [custodialAddressId], references: [id], onDelete: Cascade)
 
   events             StarDepositEvent[]
   webhooks           WebhookAuditLog[]
+  fraudAlerts        FraudAlert[]
 
   // Note: StarDeposit does not have `access` field (was a copy/paste bug).
   @@index([status, createdAt])
   @@index([chain, status, createdAt])
   @@index([userId, createdAt])
   @@index([txHash])
+  @@index([couponId])
 }
 
 model StarDepositEvent {
@@ -975,6 +1049,15 @@ model WebhookAuditLog {
 
 model PaymentConfig {
   id                     Int      @id @default(1)
+  // Growth / Monetization
+  seasonPassEnabled Boolean @default(false)
+  seasonPassPriceStars Int @default(300)
+
+  referralEnabled Boolean @default(false)
+  referralPercent Int @default(5)
+  referralApplyToTopups Boolean @default(true)
+  referralApplyToEarnings Boolean @default(true)
+
   strictMode             Boolean  @default(false)
   // Nếu bật: webhook phải pass đúng signature của provider ("provider accuracy mode")
   providerAccuracyMode   Boolean  @default(false)
@@ -989,6 +1072,66 @@ model PaymentConfig {
   updatedAt              DateTime @updatedAt
 }
 
+// =============================
+// Bundles / Coupons (ARPU)
+// =============================
+
+enum CouponKind {
+  PERCENT
+  FIXED
+}
+
+enum CouponAppliesTo {
+  TOPUP
+  SEASON_PASS
+  ANY
+}
+
+enum CouponRedemptionSourceKind {
+  TOPUP
+  SEASON_PASS
+}
+
+model Coupon {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(64)
+  kind      CouponKind
+  value     Int
+  appliesTo CouponAppliesTo @default(ANY)
+  active    Boolean  @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  maxRedemptionsTotal Int?
+  maxRedemptionsPerUser Int?
+  note      String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deposits  StarDeposit[]
+  seasonPassPurchases SeasonPassPurchase[]
+  redemptions CouponRedemption[]
+
+  @@index([active, createdAt])
+}
+
+model CouponRedemption {
+  id          String @id @default(cuid())
+  couponId    String
+  userId      String
+  sourceKind  CouponRedemptionSourceKind
+  sourceId    String @db.VarChar(191)
+  starsBonus  Int    @default(0)
+  starsDiscount Int  @default(0)
+  createdAt   DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, sourceKind, sourceId])
+  @@index([userId, createdAt])
+  @@index([couponId, createdAt])
+}
+
 model PaymentProviderSecret {
   id        String          @id @default(cuid())
   env       String          // APP_ENV (dev|prod)
@@ -1001,6 +1144,125 @@ model PaymentProviderSecret {
 
   @@unique([env, provider, name])
   @@index([env, provider, active])
+}
+
+model SeasonPass {
+  id        String           @id @default(cuid())
+  userId    String           @unique
+  startsAt  DateTime
+  endsAt    DateTime
+  status    SeasonPassStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, endsAt])
+  @@index([status, endsAt])
+}
+
+model SeasonPassPurchase {
+  id         String   @id @default(cuid())
+  userId     String
+  starsSpent Int
+  originalPriceStars Int @default(0)
+  discountStars Int @default(0)
+  finalPriceStars Int @default(0)
+  couponId String?
+  couponCode String? @db.VarChar(64)
+  startsAt   DateTime
+  endsAt     DateTime
+  txId       String   @unique @db.VarChar(128)
+  starTxId   String?  @unique
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  starTx     StarTransaction? @relation(fields: [starTxId], references: [id], onDelete: SetNull)
+  coupon    Coupon? @relation(fields: [couponId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+}
+
+model ReferralBonus {
+  id             String            @id @default(cuid())
+  referrerId     String
+  referredUserId String
+  percent        Int
+  baseStars      Int
+  bonusStars     Int
+  sourceKind     ReferralSourceKind
+  sourceId       String            @db.VarChar(191) // depositId or base starTxId
+  baseStarTxId   String?
+  bonusStarTxId  String?           @unique
+  createdAt      DateTime          @default(now())
+
+  referrer       User              @relation("ReferralBonusReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredUser   User              @relation("ReferralBonusReferred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  baseStarTx     StarTransaction?  @relation("ReferralBonusBaseTx", fields: [baseStarTxId], references: [id], onDelete: SetNull)
+  bonusStarTx    StarTransaction?  @relation("ReferralBonusBonusTx", fields: [bonusStarTxId], references: [id], onDelete: SetNull)
+
+  @@unique([sourceKind, sourceId])
+  @@index([referrerId, createdAt])
+  @@index([referredUserId, createdAt])
+  @@index([sourceKind, createdAt])
+}
+
+
+enum FraudAlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FraudAlertStatus {
+  OPEN
+  ACKED
+  RESOLVED
+}
+
+enum FraudAlertKind {
+  DUP_TX_HASH
+  TOPUP_RATE_LIMIT
+  MANUAL_CREDIT_LARGE
+  WEBHOOK_FAIL_SPIKE
+  NEEDS_REVIEW_BURST
+}
+
+model FraudAlert {
+  id        String             @id @default(cuid())
+  kind      FraudAlertKind
+  severity  FraudAlertSeverity @default(MEDIUM)
+  status    FraudAlertStatus   @default(OPEN)
+
+  // Idempotency for repeated scans
+  dedupeKey String             @db.VarChar(191)
+
+  userId    String?
+  depositId String?
+
+  title      String            @db.VarChar(191)
+  message    String?           @db.Text
+  payloadJson String?          @db.Text
+
+  acknowledgedById String?
+  acknowledgedAt   DateTime?
+  resolvedById     String?
+  resolvedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User?        @relation("FraudAlertUser", fields: [userId], references: [id], onDelete: SetNull)
+  deposit   StarDeposit? @relation(fields: [depositId], references: [id], onDelete: SetNull)
+  acknowledgedBy User?   @relation("FraudAlertAckBy", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedBy     User?   @relation("FraudAlertResBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@unique([kind, dedupeKey])
+  @@index([status, createdAt])
+  @@index([severity, createdAt])
+  @@index([userId, createdAt])
+  @@index([depositId, createdAt])
 }
 
 
@@ -1517,6 +1779,22 @@ model StarHold {
   @@index([refType, refId])
 }
 
+
+
+model UserPin {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  pinHash       String
+  failedAttempts Int     @default(0)
+  lockedUntil   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lockedUntil])
+}
+
 model NftSale {
   id        String   @id @default(cuid())
   itemId    String
@@ -1627,12 +1905,18 @@ model StorageEndpointConfig {
   // Primary storage (R2). R2 creds/base URL are still provided via env.
   r2Enabled Boolean @default(true)
 
+  // Optional playback routing overrides (R2 A/B). If empty, fallback to env.
+  // Used for Watch/Player only (NOT for upload credentials).
+  r2PublicBaseUrlA String?
+  r2PublicBaseUrlB String?
+  r2AbSplitPercent Int? @default(50)
+
   // FTP Origin backup (MP4 source)
   ftpOriginEnabled Boolean @default(false)
   ftpOriginUploadEnabled Boolean @default(false)
   ftpOriginHost String?
   ftpOriginPort Int? @default(21)
-  ftpOriginUser String?
+  ftpOriginUsername String? @map("ftpOriginUser")
   ftpOriginBasePath String? // remote folder prefix
   ftpOriginPublicBaseUrl String? // optional, mainly for operator use
   ftpOriginSecretId String?
@@ -1642,7 +1926,7 @@ model StorageEndpointConfig {
   ftpHlsUploadEnabled Boolean @default(false)
   ftpHlsHost String?
   ftpHlsPort Int? @default(21)
-  ftpHlsUser String?
+  ftpHlsUsername String? @map("ftpHlsUser")
   ftpHlsBasePath String?
   ftpHlsPublicBaseUrl String? // required if ftpHlsEnabled, used in watch fallback
   ftpHlsSecretId String?
@@ -2174,4 +2458,39 @@ model Clip {
   @@index([videoId, createdAt])
   @@index([creatorId, createdAt])
   @@index([status, createdAt])
+}
+
+model ApiKey {
+  id            String   @id @default(cuid())
+  name          String
+  keyHash       String   @unique
+  keyLast4      String
+  // Allowed web origins for browser apps (e.g. https://app.example.com). Empty => allow any.
+  allowedOrigins Json?
+  // Scopes for future expansion (e.g. PUBLIC_READ, USER_WRITE)
+  scopes        Json?
+  isActive      Boolean  @default(true)
+  createdById   String?
+  createdBy     User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  revokedAt     DateTime?
+}
+
+// Lưu cursor cho watcher (polling) để tránh quét trùng block/tx
+model ChainWatcherCursor {
+  id        String   @id @default(cuid())
+  chain     Chain
+  // optional: tokenId (USDT/USDC) để cursor riêng theo token
+  tokenId   String?
+  key       String   // e.g. "lastBlock", "lastSeenTs"
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  token     Token?   @relation(fields: [tokenId], references: [id], onDelete: SetNull)
+
+  @@unique([chain, tokenId, key])
+  @@index([chain, key])
 }

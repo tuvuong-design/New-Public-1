@@ -7,6 +7,8 @@ import { getSensitiveModeForUser } from "@/lib/sensitive";
 import VerifiedBadge from "@/components/badges/VerifiedBadge";
 import SmartImage from "@/components/media/SmartImage";
 import TipCreatorButton from "@/components/tips/TipCreatorButton";
+import { getViewerFanClubTier } from "@/lib/creatorFanClub";
+import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +50,8 @@ export default async function UserLayout({
 
   const activeTier = getActiveMembershipTier(channelUser as any);
   const isSelf = viewerId === channelUser.id;
+  const viewerFanClubTier = viewerId && !isSelf ? await getViewerFanClubTier(viewerId, channelUser.id) : null;
+  const viewerFanClubLabel = viewerFanClubTier ? (viewerFanClubTier === "BRONZE" ? "Bronze" : viewerFanClubTier === "SILVER" ? "Silver" : "Gold") : null;
   const sensitiveMode = isSelf ? await getSensitiveModeForUser(viewerId ?? null) : null;
   const subCount = await prisma.subscription.count({ where: { channelUserId: channelUser.id } });
   const isSubscribed = viewerId
@@ -76,6 +80,7 @@ export default async function UserLayout({
           <div className="flex items-center gap-2">
             <div className="truncate text-lg font-extrabold">{channelUser.name ?? "(no name)"}</div>
             <VerifiedBadge tier={activeTier as any} />
+            {viewerFanClubLabel ? <Badge variant="secondary">⭐ {viewerFanClubLabel} Member</Badge> : null}
           </div>
           <div className="small muted">{subCount} subscribers</div>
         </div>

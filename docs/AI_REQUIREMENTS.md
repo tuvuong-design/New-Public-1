@@ -1,45 +1,46 @@
 # AI_REQUIREMENTS.md — Checklist yêu cầu dự án VideoShare (Next.js App Router)
-## v4.12.0 bổ sung (Trust, safety & infra — không phá contract cũ)
 
-### Admin / Operator
-- Stars ledger page: `/admin/stars/transactions` phải có filter theo user/type/date + nút export CSV.
-- Payments dashboard cần có quick audit counters (double-credit / missing links) để phát hiện mismatch nhanh.
+**Current version:** v4.16.24
 
-### API mới / mở rộng
-- Ledger export: `GET /api/admin/stars/export/ledger` (CSV; respects filters).
-- Search: `GET /api/search` ưu tiên FULLTEXT relevance + Redis cache (TTL ngắn).
+> File này là checklist/contract (không phải progress). Trạng thái DONE/TODO xem `TASK_TEMPLATE_CONTINUE.md`.
 
-### Analytics (Growth Hacker Phase A)
-- Analytics events endpoint: `POST /api/analytics/events` nhận batch events (<=50) và chỉ enqueue job (không xử lý nặng trong web request).
-- CTR tracking: event types `CARD_IMPRESSION`, `CARD_CLICK` với `source`/`placement` (best-effort).
-- Worker `analytics` phải aggregate vào `VideoMetricDaily` (impressions/clicks) và `VideoTrafficSourceDaily`.
-- Studio dashboard: `/studio/analytics` hiển thị chart CTR + top sources theo khoảng ngày (7/28/90).
+## 0) Bổ sung v4.16.x (không phá contract cũ)
 
-### Worker / Queues
-- `moderation` queue: report video/comment enqueue `review_report` (tối thiểu alert/notify; actions vẫn manual trong Admin UI).
-- `cdn` queue: `purge_paths` job (Cloudflare purge optional; no-op nếu chưa cấu hình).
+### Storage redundancy (R2 + FTP + Drive)
+- R2 vẫn là primary. Các endpoint backup/mirror là optional.
+- Mọi thay đổi storage config phải:
+  - **pending apply sau 24h**
+  - audit log + notify admins
+- Heavy work (mirror/rebuild/health scan) chạy **worker queue `storage`**, không chạy trong web request.
 
-### Security / Anti-fraud
-- Stars credit (auto/manual) phải idempotent dựa trên `StarTransaction.depositId` unique.
-- Risk rules phải Redis-backed, có thể cấu hình qua env:
-  - `STARS_RISK_MAX_CREDIT_PER_USER_PER_DAY`
-  - `STARS_RISK_MAX_CREDITS_PER_USER_PER_HOUR`
-  - `STARS_RISK_MIN_SECONDS_BETWEEN_CREDITS`
-- Nếu vi phạm rule: không credit, set `StarDeposit.status=NEEDS_REVIEW` và ghi `StarDepositEvent.type=RISK_REVIEW`.
+### HLS packaging (Admin `/admin/hls`)
+- Admin chọn 1 trong 3 mode: TS / fMP4 / Hybrid.
+- Encode luôn chạy trong worker (`worker/src/jobs/encodeHls.ts`).
+- HLS public assets phải **immutable** (đổi encodeId/buildId thay vì overwrite).
 
-### Prisma
-- Không thay đổi contract payments; chỉ fix schema index bug nếu có.
+### Growth / ARPU (v4.16.23+)
+- **Season Pass 30d** mua bằng Stars:
+  - Purchase phải ghi rõ `priceStarsOriginal`, `discountStars`, `priceStarsFinal`, `discountReason`.
+  - Ledger type: `SEASON_PASS_PURCHASE` (idempotent per purchase).
+- **Referral Stars** (1–20% admin-config):
+  - Bonus áp dụng cho TOPUP và các nguồn EARN (tip, membership, marketplace, ads/rewards nếu có) bằng helper `applyReferralBonusTx`.
+  - Idempotency: `ReferralBonus` unique `(sourceKind, sourceId)`.
+- **Bundles / Coupons**:
+  - Topup credit tạo ledger tách riêng: `TOPUP` + `BUNDLE_BONUS` + `COUPON_BONUS` (idempotent theo `(depositId,type)`).
+  - Coupon validation phải enforce window + active + redemption limits; redemption record là nguồn truth.
+  - Admin pages/APIs phải guard: `/admin/payments/bundles`, `/admin/payments/coupons`.
 
-### Nguyên tắc
-- Không đổi/đụng contracts payments/stars topup/similar/webhooks provider.
-- Server/Client boundary: các thao tác Add/Remove playlist, Pin/Heart đều nằm trong Client Components.
+### Trust & Safety (v4.16.22+)
+- Fraud Radar (Admin) for Payments: `/admin/payments/fraud` + `FraudAlert` triage; signals generated in API + worker scans.
+- Moderation escalation scan (auto mute/ban) chạy best-effort trong repeatable `payments:alert_cron`.
+- Weekly digest:
+  - in-app notification type `WEEKLY_DIGEST`
+  - optional email qua Resend, env-gated, có user toggle `WEEKLY_DIGEST_EMAIL`.
 
-
-**Current version:** v4.12.0
-
-> **Dùng cho chat mới:** Upload zip source + gửi **AI_REQUIREMENTS.md** và **PROJECT_CONTEXT.md**. Hai file này là “hợp đồng” để AI update/repair/rebuild đúng hướng.
-
-> **Lưu ý:** File này là checklist/contract (không phải progress). Trạng thái Done/TODO xem `TASK_TEMPLATE_CONTINUE.md`.
+### Contracts & release hygiene
+- Không đổi routes/jobs/Redis keys trong `CONTRACT_CHECKLIST.md`.
+- Trước khi release: chạy `bash scripts/contract-check.sh`.
+- Hoàn tất task: bump version + update `CHANGELOG.md` + sync docs core (root + `/docs`) + export ZIP slim.
 
 ---
 

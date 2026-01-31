@@ -72,7 +72,8 @@ export default function Comments({
 }) {
   const { data: session } = useSession();
   const [comments, setComments] = useState<Comment[]>([]);
-  const [content, setContent] = useState("...");
+  const [viewerFanClubTier, setViewerFanClubTier] = useState<"BRONZE" | "SILVER" | "GOLD" | null>(null);
+  const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
 
   const visibleComments = useMemo(() => {
@@ -111,6 +112,7 @@ function fanClubBadge(tier: "BRONZE" | "SILVER" | "GOLD" | null | undefined) {
     const res = await fetch(`/api/comments?videoId=${encodeURIComponent(videoId)}`, { cache: "no-store" });
     const data = await res.json();
     setComments(data.comments || []);
+    setViewerFanClubTier(data.viewerFanClubTier ?? null);
     setLoading(false);
   }
 
@@ -176,6 +178,32 @@ function fanClubBadge(tier: "BRONZE" | "SILVER" | "GOLD" | null | undefined) {
         <div className="card small muted">Bình luận đã bị tắt cho video này.</div>
       ) : (
         <form onSubmit={submit} className="space-y-2">
+          {viewerFanClubTier ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-xs text-muted-foreground">Perks:</div>
+              <div className="flex flex-wrap gap-1">
+                {(() => {
+                  const base = ["👍", "😂", "🔥", "❤️", "👏", "✨"];
+                  const silver = ["💎", "🚀", "😎", "🤯"];
+                  const gold = ["👑", "🏆", "🌟", "💯", "🥇", "🤑"];
+                  const tier = viewerFanClubTier;
+                  const list = tier === "GOLD" ? base.concat(silver, gold) : tier === "SILVER" ? base.concat(silver) : base;
+                  return list.map((emo) => (
+                    <button
+                      key={emo}
+                      type="button"
+                      className="rounded border px-2 py-1 text-sm hover:bg-muted"
+                      onClick={() => setContent((prev) => `${prev}${prev ? " " : ""}${emo}`)}
+                      title={`Fan Club ${tier}`}
+                    >
+                      {emo}
+                    </button>
+                  ));
+                })()}
+              </div>
+            </div>
+          ) : null}
+
           <textarea
             className="w-full rounded border p-2"
             rows={3}

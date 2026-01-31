@@ -34,6 +34,7 @@ export async function POST(req: Request) {
 
   const feedTikTokEnabled = form.get("feedTikTokEnabled") === "on";
   const storyboardEnabled = form.get("storyboardEnabled") === "on";
+  const playerP2PEnabled = form.get("playerP2PEnabled") === "on";
   const sensitiveDefaultMode = normalizeSensitiveMode(form.get("sensitiveDefaultMode"));
 
   const oneSignalEnabled = form.get("oneSignalEnabled") === "on";
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
       indexNowKey,
       feedTikTokEnabled,
       storyboardEnabled,
+      playerP2PEnabled,
       sensitiveDefaultMode,
       oneSignalEnabled,
       oneSignalAppId,
@@ -127,6 +129,7 @@ export async function POST(req: Request) {
       indexNowKey,
       feedTikTokEnabled,
       storyboardEnabled,
+      playerP2PEnabled,
       sensitiveDefaultMode,
       oneSignalEnabled,
       oneSignalAppId,

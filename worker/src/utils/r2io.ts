@@ -5,6 +5,8 @@ import { r2, R2_BUCKET } from "../r2";
 
 export const CACHE_CONTROL_IMMUTABLE = "public, max-age=31536000, immutable";
 export const CACHE_CONTROL_1_HOUR = "public, max-age=3600";
+// HLS playlists should have short cache + SWR to avoid stale manifests
+export const CACHE_CONTROL_PLAYLIST = "public, max-age=30, stale-while-revalidate=60";
 
 type UploadOptions = {
   cacheControl?: string;
@@ -73,12 +75,15 @@ export async function uploadDir(prefixKey: string, dir: string, opts?: UploadOpt
   for (const f of files) {
     const rel = path.relative(dir, f).replaceAll(path.sep, "/");
     const key = `${prefixKey}/${rel}`;
-    const ct = rel.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" :
+    const isPlaylist = rel.endsWith(".m3u8");
+    const ct = isPlaylist ? "application/vnd.apple.mpegurl" :
       rel.endsWith(".ts") ? "video/mp2t" :
       rel.endsWith(".m4s") ? "video/iso.segment" :
       rel.endsWith(".mp4") ? "video/mp4" :
       "application/octet-stream";
-    await uploadFile(key, f, ct, opts);
+
+    const cacheControl = opts?.cacheControl ?? (isPlaylist ? CACHE_CONTROL_PLAYLIST : CACHE_CONTROL_IMMUTABLE);
+    await uploadFile(key, f, ct, { cacheControl });
   }
 }
 

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { requireAdmin } from "@/lib/authz";
 import { creditDepositStars } from "@/lib/payments/credit";
+import { createFraudAlert } from "@/lib/payments/fraud";
 import { z } from "zod";
 
 const schema = z.object({ depositId: z.string().min(1), reason: z.string().optional() });
@@ -18,7 +19,22 @@ export async function POST(req: Request) {
 
   try {
     const out = await creditDepositStars(parsed.data.depositId, parsed.data.reason || "ADMIN_MANUAL_CREDIT");
-    return Response.json({ ok: true, out });
+
+const largeThreshold = Number(process.env.FRAUD_MANUAL_CREDIT_ALERT_STARS || 2000);
+if ((out as any)?.ok && Number((out as any)?.stars || 0) >= largeThreshold) {
+  await createFraudAlert({
+    kind: "MANUAL_CREDIT_LARGE",
+    severity: "HIGH",
+    dedupeKey: `deposit:${parsed.data.depositId}`,
+    depositId: parsed.data.depositId,
+    title: "Large manual credit",
+    message: `Admin manual credit credited ${(out as any)?.stars} stars (threshold=${largeThreshold}). reason=${parsed.data.reason || "ADMIN_MANUAL_CREDIT"}`,
+    payload: { depositId: parsed.data.depositId, stars: (out as any)?.stars, reason: parsed.data.reason || "ADMIN_MANUAL_CREDIT" },
+  }).catch(() => {});
+}
+
+return Response.json({ ok: true, out });
+
   } catch (e: any) {
     return Response.json({ ok: false, error: e?.message || "FAILED" }, { status: 500 });
   }

@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getSiteConfig } from "@/lib/siteConfig";
 import { calcNftSaleFees } from "@/lib/nft/fees";
 import { releaseMaturedHoldsTx } from "@/lib/stars/holds";
-
+import { applyReferralBonusTx } from "@/lib/referrals";
 export const runtime = "nodejs";
 
 function addDays(d: Date, days: number) {
@@ -182,7 +182,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     for (const [uid, amount] of credits.entries()) {
       if (amount <= 0) continue;
       await tx.user.update({ where: { id: uid }, data: { starBalance: { increment: amount } } });
-      await tx.starTransaction.create({
+      const incomeTx = await tx.starTransaction.create({
         data: {
           userId: uid,
           type: "NFT_SALE",
@@ -191,6 +191,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           quantity: 1,
           note: `NFT sale ${sale.id} (listing=${listing.id})`,
         },
+        select: { id: true },
+      });
+
+      await applyReferralBonusTx(tx as any, {
+        referredUserId: uid,
+        baseStars: amount,
+        sourceKind: "EARN",
+        sourceId: incomeTx.id,
+        baseStarTxId: incomeTx.id,
       });
     }
   });

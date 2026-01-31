@@ -14,12 +14,20 @@ const DEFAULT_ALLOWLIST: ProviderAllowlist = {
 };
 
 export type PaymentConfigLike = {
+  // Payments core
+
   strictMode: boolean;
   providerAccuracyMode: boolean;
   toleranceBps: number;
   submittedStaleMinutes: number;
   reconcileEveryMs: number;
   allowlist: ProviderAllowlist;
+
+  // Growth / Monetization
+  referralEnabled: boolean;
+  referralPercent: number;
+  referralApplyToTopups: boolean;
+  referralApplyToEarnings: boolean;
 };
 
 let cache: { at: number; cfg: PaymentConfigLike } | null = null;
@@ -47,6 +55,11 @@ export async function getPaymentConfigCached(): Promise<PaymentConfigLike> {
     submittedStaleMinutes: row?.submittedStaleMinutes ?? env.PAYMENTS_SUBMITTED_STALE_MINUTES,
     reconcileEveryMs: row?.reconcileEveryMs ?? env.PAYMENTS_RECONCILE_EVERY_MS,
     allowlist: parseAllowlist(row?.allowlistJson ?? undefined),
+
+    referralEnabled: row?.referralEnabled ?? false,
+    referralPercent: Math.max(0, Math.min(20, row?.referralPercent ?? 0)),
+    referralApplyToTopups: row?.referralApplyToTopups ?? true,
+    referralApplyToEarnings: row?.referralApplyToEarnings ?? true,
   };
 
   cache = { at: now, cfg };

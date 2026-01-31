@@ -11,6 +11,8 @@ const KNOWN_TYPES: { key: string; label: string }[] = [
   { key: "CREATOR_TIP", label: "Nhận tip từ người xem" },
   { key: "CREATOR_MEMBERSHIP", label: "Có người join Fan Club" },
   { key: "WEEKLY_DIGEST", label: "Tóm tắt tuần (in-app)" },
+  { key: "CONTINUE_WATCHING_DIGEST", label: "Nhắc tiếp tục xem (in-app)" },
+  { key: "WEEKLY_DIGEST_EMAIL", label: "Tóm tắt tuần (email)" },
 ];
 
 export function NotificationSettingsForm({ initialDisabled }: { initialDisabled: string[] }) {

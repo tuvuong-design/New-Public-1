@@ -1,0 +1,320 @@
+HƯỚNG DẪN KẾT NỐI FRONTEND (Bolt.new / Lovable / Firebase / Vite / Expo)
+Backend: VideoShare (Next.js) — tất cả API nằm dưới /api/...
+
+================================================================================
+0) Tư duy tổng quan (dễ hiểu)
+- Backend chạy Next.js: https://BACKEND_DOMAIN
+- Bạn có thể có NHIỀU frontend khác nhau (nhiều domain, Expo app, ...), nhưng dùng CHUNG 1 backend.
+- Để chống lạm dụng khi frontend khác domain, backend hỗ trợ:
+  (1) API Key (X-API-Key) + allowlist domain (allowedOrigins)
+  (2) Auth (đăng ký/đăng nhập) bằng JWT Cookie (dễ dùng cho frontend AI tools)
+  (3) Validation dữ liệu (Zod) + Rate Limit (Redis nếu có)
+
+================================================================================
+1) API KEY dùng để làm gì?
+- Khi frontend chạy ở domain khác (Origin header khác backend), các API nhạy cảm (login/register/me/...) sẽ yêu cầu:
+    Header: X-API-Key: <your_key>
+- Admin sẽ tạo API key và khai báo allowedOrigins = các domain được phép gọi.
+
+1.1 Tạo API Key (chỉ Admin)
+POST /api/admin/api-keys
+Body JSON:
+{
+  "name": "Bolt Frontend",
+  "allowedOrigins": ["https://your-bolt-domain.com", "https://your-firebase.web.app"],
+  "scopes": ["PUBLIC_READ","USER_WRITE","NFT_WRITE"]
+}
+Response:
+- key (trả 1 lần duy nhất) => lưu lại ngay.
+- apiKey.id, keyLast4 để quản lý.
+
+1.2 Dùng API Key ở frontend
+- Vite/Bolt/Lovable/Firebase (browser):
+  - fetch nhớ bật cookie: credentials: "include"
+  - set header X-API-Key
+
+Ví dụ:
+fetch("https://BACKEND_DOMAIN/api/auth-jwt/me", {
+  method: "GET",
+  credentials: "include",
+  headers: { "X-API-Key": API_KEY }
+})
+
+================================================================================
+2) AUTH API riêng (JWT Cookie) — dễ tích hợp hơn NextAuth
+Các API này tạo cookie httpOnly:
+- vs_access (15 phút)
+- vs_refresh (30 ngày)
+
+2.1 Register
+POST /api/auth-jwt/register
+Body:
+{
+  "email": "a@b.com",
+  "password": "123456",
+  "username": "tynguyen",
+  "returnTokens": true
+}
+- returnTokens=true (hoặc header x-return-tokens: 1) => trả thêm accessToken/refreshToken trong JSON (hữu ích cho app mobile).
+Browser thường KHÔNG cần returnTokens (đã có cookie).
+
+2.2 Login
+POST /api/auth-jwt/login
+Body:
+{
+  "email": "a@b.com",
+  "password": "123456",
+  "returnTokens": true
+}
+
+2.3 Me (lấy thông tin user)
+GET /api/auth-jwt/me
+- Browser: dùng cookie (credentials: include) + X-API-Key (nếu khác domain)
+- Mobile: có thể dùng Bearer token:
+  Authorization: Bearer <accessToken>
+
+2.4 Refresh token
+POST /api/auth-jwt/refresh
+- Mặc định đọc vs_refresh cookie
+- Nếu muốn nhận token trong JSON: set header x-return-tokens: 1
+
+2.5 Logout
+POST /api/auth-jwt/logout
+
+================================================================================
+3) CORS + Cookie (quan trọng)
+- Nếu frontend khác domain backend:
+  - backend chỉ cho phép nếu có X-API-Key hợp lệ (ở các route auth-jwt)
+  - bắt buộc dùng HTTPS để cookie SameSite=None hoạt động.
+  - fetch phải có: credentials: "include"
+
+================================================================================
+4) Các API public (không cần đăng nhập)
+Tuỳ từng route trong project, thường có:
+- GET /api/public/videos
+- GET /api/public/videos/[id]
+Các route public có thể không bắt buộc API key (tùy chính sách bạn muốn).
+
+================================================================================
+5) Rate limit / Validation / Phân quyền
+- Validation: Zod ở các route auth-jwt và admin api-keys.
+- Rate limit: /lib/api/rateLimit.ts (Redis nếu có, không có thì fail-open cho dev).
+- Phân quyền:
+  - Admin routes yêu cầu role ADMIN (NextAuth session).
+  - Auth-jwt routes chỉ xác thực người dùng; quyền nâng cao bạn có thể kiểm soát theo role trong payload.
+
+================================================================================
+6) Checklist cho Bolt/Lovable/Firebase
+- Có BACKEND_DOMAIN
+- Có API_KEY
+- Dùng các endpoint auth-jwt để login/register
+- Khi gọi API cần cookie: fetch credentials: "include"
+- Nếu gặp lỗi 401: kiểm tra Origin/allowedOrigins và API key
+
+
+
+
+========================
+PHẦN MỚI: API DÀNH CHO FRONTEND NGOÀI (Bolt/Lovable/Firebase/Expo)
+========================
+
+👉 Khuyến nghị dùng nhóm endpoint /api/external/* cho các frontend/app nằm ở domain khác nhau.
+Nhóm này luôn:
+- BẮT BUỘC gửi header: X-API-Key
+- Nếu gọi từ browser (có Origin): backend sẽ kiểm tra Origin có nằm trong allowedOrigins của API key hay không.
+- Có thể dùng đăng nhập JWT (cookie hoặc Bearer token) để gọi các API cần login.
+
+1) AUTH (JWT cookie / Bearer)
+- POST /api/external/auth/register  (re-export từ /api/auth-jwt/register)
+- POST /api/external/auth/login     (re-export từ /api/auth-jwt/login)
+- POST /api/external/auth/refresh   (re-export từ /api/auth-jwt/refresh)
+- GET  /api/external/auth/me        (re-export từ /api/auth-jwt/me)
+- POST /api/external/auth/logout    (re-export từ /api/auth-jwt/logout)
+
+2) VIDEO LIST (public)
+- GET /api/external/public/videos?sort=new|views|likes&page=1&take=24
+  Header: X-API-Key: ...
+  (Không bắt buộc login)
+
+3) VIEW
+- POST /api/external/views
+  Body: { "videoId": "..." }
+  Header: X-API-Key: ...
+  (Rate limit theo IP + apiKey)
+
+4) LIKE (cần login)
+- POST /api/external/likes
+  Body: { "videoId": "..." }
+  Header: X-API-Key: ...
+  + Cookie (credentials: include) HOẶC Authorization: Bearer <accessToken>
+
+5) COMMENT
+- GET /api/external/comments?videoId=...
+  Header: X-API-Key: ...
+  (login optional: nếu login thì có thể thấy thêm thông tin theo quyền)
+
+- POST /api/external/comments
+  Body: { "videoId": "...", "content": "..." }
+  Header: X-API-Key: ...
+  + Cookie/Bearer (bắt buộc)
+
+6) NFT MARKET (cần login)
+- POST /api/external/nft/listings/create
+  Body: { "itemId": "...", "priceStars": 123 }
+  Header: X-API-Key: ...
+  + Cookie/Bearer
+
+- POST /api/external/nft/listings/{id}/cancel
+  Header: X-API-Key: ...
+  + Cookie/Bearer
+
+- POST /api/external/nft/listings/{id}/buy
+  Header: X-API-Key: ...
+  + Cookie/Bearer
+
+------------------------
+SCOPES gợi ý khi tạo API key
+------------------------
+- PUBLIC_READ: đọc public
+- VIDEO_READ: đọc danh sách video (external)
+- VIEW_WRITE: tăng view
+- LIKE_WRITE: like/unlike
+- COMMENT_READ / COMMENT_WRITE
+- NFT_READ / NFT_WRITE
+- AUTH: dùng auth endpoint (nếu bạn muốn giới hạn)
+- ADMIN: chỉ dùng cho admin tools
+
+Nếu scopes để rỗng/không có => mặc định cho phép (để không làm gãy key cũ).
+
+
+============================
+NFT MARKET (External) - DÙNG CHO FRONTEND AI (không cần SSR)
+============================
+Các API này yêu cầu header X-API-Key.
+
+1) Danh sách listing đang bán
+GET /api/external/nft/market/listings?page=1&take=24&status=ACTIVE&collectionId=...&sellerId=...
+
+2) Danh sách collection
+GET /api/external/nft/market/collections?page=1&take=24&creatorId=...&q=...
+
+3) Danh sách item
+GET /api/external/nft/market/items?page=1&take=24&collectionId=...&ownerId=...&q=...&includeListing=true
+
+============================
+NẠP SAO BẰNG TIỀN ẢO (Crypto Topup)
+============================
+(1) Lấy các gói nạp (packages)
+GET /api/external/stars/topup/packages?chain=SOLANA
+
+(2) Tạo yêu cầu nạp (deposit)
+POST /api/external/stars/topup/deposits/create
+Body: { packageId, couponCode? }
+=> Trả về địa chỉ nạp + memo (nếu chain cần memo).
+
+(3) Xem trạng thái deposit
+GET /api/external/stars/topup/deposits/{id}
+
+Lưu ý: Backend sẽ ghi nhận deposit khi có webhook/cron đối soát txHash (phần này tuỳ tích hợp provider).
+
+============================
+PIN BẢO MẬT (mua NFT / tặng sao / đúc NFT)
+============================
+- Set PIN: POST /api/external/security/pin/set  (login JWT)
+- Verify PIN: POST /api/external/security/pin/verify (login JWT)
+
+Gợi ý: Với các action nhạy cảm, frontend gửi kèm pin trong body hoặc header X-PIN.
+
+============================
+POLICY: VIEW_WRITE BẮT BUỘC
+============================
+Endpoint tăng view: POST /api/external/views
+- BẮT BUỘC API key có scope VIEW_WRITE (không có scope sẽ bị chặn).
+
+POST /api/external/stars/gift  { toUserId, stars, message?, idempotencyKey?, pin? }
+
+
+POST /api/external/nft/mint/clip { clipId, chain?, editionSize?, pin? }
+
+================================================================================
+10) Bảo mật mới: strictScopes + PIN cho các hành động nhạy cảm
+- Một số endpoint đã bật `strictScopes: true` cho scope:
+  - USER_WRITE
+  - NFT_WRITE
+  - VIEW_WRITE (siết policy views)
+=> Nghĩa là API Key BẮT BUỘC phải có scope đúng (không “thừa kế” từ PUBLIC_READ).
+
+- PIN (mã 4-12 số) được yêu cầu nếu user đã cài PIN:
+  - Mua NFT, tặng sao, đúc NFT
+  - Bán NFT / tạo listing, huỷ listing, chỉnh giá listing (mới)
+Nếu user chưa set PIN thì không bắt buộc gửi pin.
+
+Headers phổ biến:
+- X-API-Key: <api key>
+- Cookie JWT: tự có sau khi login
+
+Body (ví dụ):
+{ "pin": "1234", ... }
+
+================================================================================
+11) Webhook nạp coin (USDT/USDC) -> auto-credit Stars
+Mục tiêu: webhook nhận tx -> match memo/depositId hoặc toAddress -> CONFIRMED/CREDITED -> cộng starBalance + tạo StarTransaction.
+
+Bảo mật: bắt buộc header:
+- x-webhook-secret: <CRYPTO_WEBHOOK_SECRET>
+
+Endpoints:
+- POST /api/webhooks/crypto/helius   (Solana / Helius)
+- POST /api/webhooks/crypto/alchemy  (BSC/EVM / Alchemy)  (thêm ?chain=BSC nếu cần)
+- POST /api/webhooks/crypto/tron     (TRON / payload chuẩn hoá từ watcher của bạn)
+- POST /api/webhooks/crypto          (generic wrapper {provider, chain, payload})
+
+Env cần set:
+- CRYPTO_WEBHOOK_SECRET
+- PAYMENTS_AUTO_CREDIT=true/false
+- PAYMENTS_TOLERANCE_BPS (mặc định 150 = 1.5%)
+
+Lưu ý:
+- Helius có thể retry và gửi trùng -> hệ thống dedupe theo WebhookAuditLog(provider+sha256)
+- Nếu amount lệch so với expected quá tolerance => deposit chuyển NEEDS_REVIEW (không auto-credit)
+
+
+====================
+WATCHER TRON/BSC (TỰ ĐỘNG CỘNG SAO)
+====================
+✅ Mục tiêu: khi user nạp USDT/USDC vào ví nạp (custodial address), hệ thống tự:
+1) phát hiện giao dịch (watcher polling hoặc provider webhook)
+2) match depositId / toAddress
+3) set trạng thái: OBSERVED -> CONFIRMED -> CREDITED
+4) cộng sao (starBalance) + tạo StarTransaction
+
+1) BSC (USDT/USDC)
+- Cách A (khuyên dùng nếu có Alchemy): dùng webhook Alchemy Notify gọi vào:
+  POST /api/webhooks/crypto/alchemy
+  Header: x-webhook-secret = CRYPTO_WEBHOOK_SECRET
+
+- Cách B (không cần Alchemy): bật polling watcher trong worker:
+  env:
+    EVM_RPC_URL_BSC=...
+    PAYMENTS_WATCH_BSC_EVERY_MS=60000
+    PAYMENTS_EVM_CONFIRMATIONS=5
+    PAYMENTS_WATCH_BLOCK_WINDOW=2000
+  Worker sẽ tự quét Transfer logs (ERC20) của USDT/USDC và gọi reconcile_deposit.
+
+2) TRON (TRC20 USDT/USDC)
+- TronGrid thường không có webhook transfer ổn định => dùng polling watcher:
+  env:
+    TRONGRID_API_URL=https://api.trongrid.io
+    TRONGRID_API_KEY=...
+    PAYMENTS_WATCH_TRON_EVERY_MS=60000
+
+⚠️ Lưu ý:
+- Cần có Token rows trong DB cho USDT/USDC theo từng chain (contractAddress + decimals).
+- Mỗi deposit nên có 1 địa chỉ nạp riêng (custodial address) để match chính xác (TRON/EVM không có memo).
+- Nếu số tiền lệch expected quá tolerance => chuyển NEEDS_REVIEW (không auto-credit).
+
+
+===== THÔNG BÁO TELEGRAM (tuỳ chọn) =====
+- Bật thông báo nạp sao: TELEGRAM_NOTIFY_ENABLED=true
+- Set TELEGRAM_BOT_TOKEN và TELEGRAM_CHAT_ID
+- Khi deposit CREDITED hoặc NEEDS_REVIEW, backend sẽ gửi message.

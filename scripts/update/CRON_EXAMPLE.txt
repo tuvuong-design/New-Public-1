@@ -1,0 +1,4 @@
+# Ví dụ cron mỗi 10 phút (Linux):
+*/10 * * * * cd /www/wwwroot/your-project && node scripts/update/check_github_updates.js >> .cache/update.log 2>&1
+
+# Nếu dùng PM2 thì có thể dùng pm2-cron / hoặc tự cron như trên.

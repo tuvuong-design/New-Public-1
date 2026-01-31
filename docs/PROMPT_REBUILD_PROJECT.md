@@ -1,4 +1,10 @@
-Current Version: 4.12.0
+Current Version: 4.16.20
+
+## v4.16.x additions (Storage + HLS + Trust & Safety)
+- Storage redundancy: Admin `/admin/storage` (verify + test upload + pending apply 24h + audit) + worker queue `storage` (apply_pending_config, health_scan, backup_origin, mirror_hls, rebuild_hls_from_drive).
+- HLS packaging: Admin `/admin/hls` chọn TS / fMP4 / Hybrid; worker `encodeHls` sinh output immutable theo encodeId.
+- Trust & Safety: moderation escalation scan (auto mute/ban) chạy best-effort trong repeatable `payments:alert_cron` + weekly digest in-app + optional email (Resend).
+
 
 ## v4.12.0 additions (Growth Hacker Phase A)
 - CTR tracking: client-side card impression/click events (`CARD_IMPRESSION`, `CARD_CLICK`) via `POST /api/analytics/events` queued to `analytics` worker.
@@ -17,7 +23,7 @@ Current Version: 4.12.0
 
 > Dùng file này làm **prompt gốc** khi mở chat mới để AI có thể **rebuild toàn bộ dự án VideoShare Next.js từ đầu** đúng stack/contract.
 
-**Target version:** v4.12.0
+**Target version:** v4.16.22
 
 ---
 

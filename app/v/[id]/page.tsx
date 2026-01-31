@@ -3,7 +3,7 @@ import { env } from "@/lib/env";
 import type { Metadata } from "next";
 import { notFound, unauthorized } from "next/navigation";
 import { cookies } from "next/headers";
-import VideoPlayer from "@/components/player/VideoPlayer";
+import VideoPlayerClient from "@/components/player/VideoPlayerClient";
 import AdStream from "@/components/ads/AdStream";
 import Comments from "./ui/Comments";
 import LikeButton from "./ui/LikeButton";
@@ -12,6 +12,7 @@ import StarGiftButton from "./ui/StarGiftButton";
 import ReportButton from "./ui/ReportButton";
 import TipCreatorButton from "@/components/tips/TipCreatorButton";
 import AddToPlaylistButton from "./ui/AddToPlaylistButton";
+import WatchLaterToggleForm from "./ui/WatchLaterToggleForm";
 import PremiumGateClient from "./ui/PremiumGateClient";
 import ClipMakerClient from "./ui/ClipMakerClient";
 import UpNextAutoplayClient from "./ui/UpNextAutoplayClient";
@@ -27,11 +28,13 @@ import { Badge } from "@/components/ui/badge";
 import SensitiveVideoGate from "@/components/sensitive/SensitiveVideoGate";
 import { getVideoPasswordCookieName, verifyVideoPasswordToken } from "@/lib/videoPassword";
 import { resolveMediaUrl } from "@/lib/mediaUrl";
-import { resolveHlsMasterUrl } from "@/lib/storage/playback";
+import { resolveStreamCandidates } from "@/lib/playback/resolveStream";
 import { getAssignedVideoExperimentVariant } from "@/lib/experiments/assign";
 import RealtimeViewersBadge from "@/components/analytics/RealtimeViewersBadge";
 import CreatorGoalBar from "@/components/creator/CreatorGoalBar";
 import { monthKey } from "@/lib/membership";
+import { getViewerFanClubTier } from "@/lib/creatorFanClub";
+import EarlyAccessGateClient from "./ui/EarlyAccessGateClient";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +87,8 @@ export default async function VideoPage({ params, searchParams }: { params: { id
   const site = await getSiteConfig();
   const session = await auth();
   const viewerId = (session?.user as any)?.id as string | undefined;
+  const viewerFanClubTier = viewerId && v.authorId && viewerId !== v.authorId ? await getViewerFanClubTier(viewerId, v.authorId) : null;
+  const viewerFanClubLabel = viewerFanClubTier ? (viewerFanClubTier === "BRONZE" ? "Bronze" : viewerFanClubTier === "SILVER" ? "Silver" : "Gold") : null;
   const sensitiveMode = await getSensitiveModeForUser(viewerId ?? null);
   const access = ((v as any).access ?? "PUBLIC") as any;
   const gateRow = {
@@ -92,10 +97,39 @@ export default async function VideoPage({ params, searchParams }: { params: { id
     access,
     authorId: v.authorId,
     interactionsLocked: Boolean((v as any).interactionsLocked),
+    earlyAccessTier: (v as any).earlyAccessTier ?? null,
+    earlyAccessUntil: (v as any).earlyAccessUntil ?? null,
   } as any;
+
+  const now = new Date();
+  const earlyAccessActive = access === "PUBLIC" && Boolean((v as any).earlyAccessTier) && Boolean((v as any).earlyAccessUntil) && new Date((v as any).earlyAccessUntil as any).getTime() > now.getTime();
 
   const canView = await canViewVideoDb(gateRow, session);
   if (!canView) {
+    if (earlyAccessActive) {
+      const untilIso = new Date((v as any).earlyAccessUntil as any).toISOString();
+      const plans = v.authorId
+        ? await prisma.creatorMembershipPlan.findMany({
+            where: { creatorId: v.authorId, status: "ACTIVE" },
+            orderBy: [{ tier: "asc" }, { priceStars: "asc" }],
+            take: 10,
+          })
+        : [];
+
+      return (
+        <main className="mx-auto max-w-2xl space-y-3">
+          <EarlyAccessGateClient
+            creatorId={v.authorId ?? ""}
+            creatorName={v.author?.name ?? "Creator"}
+            requiredTier={(v as any).earlyAccessTier as any}
+            untilIso={untilIso}
+            plans={plans as any}
+            viewerTier={viewerFanClubTier as any}
+            loggedIn={Boolean(viewerId)}
+          />
+        </main>
+      );
+    }
     if (access === "PREMIUM_PLUS") {
       return (
         <main className="mx-auto max-w-2xl space-y-3">
@@ -156,6 +190,15 @@ export default async function VideoPage({ params, searchParams }: { params: { id
   const interactionsAllowed = await canInteractWithVideoDb(gateRow, session);
   const canModerate = Boolean(session?.user?.role === "ADMIN") || (viewerId && viewerId === v.authorId);
 
+  const watchLaterActive = viewerId
+    ? Boolean(
+        await prisma.watchLaterItem.findUnique({
+          where: { userId_videoId: { userId: viewerId, videoId: v.id } },
+          select: { id: true },
+        })
+      )
+    : false;
+
   // Password gate: return HTTP 401 (via `unauthorized()`) instead of 404.
   // Bypass for owner/admin.
   if (v.accessPasswordHash && !canModerate) {
@@ -176,7 +219,9 @@ export default async function VideoPage({ params, searchParams }: { params: { id
   const displayTitle = assigned?.variant.title ?? v.title;
   const displayThumbKey = assigned?.variant.thumbKey ?? v.thumbKey;
 
-  const hlsUrl = await resolveHlsMasterUrl(v.id, v.masterM3u8Key);
+  const stream = await resolveStreamCandidates({ videoId: v.id, masterM3u8Key: v.masterM3u8Key, viewerId: viewerId ?? null });
+  const hlsUrl = stream.preferred?.url ?? "";
+  const hlsCandidates = stream.candidates;
   const poster = resolveMediaUrl(displayThumbKey) ?? undefined;
   // Up next (playlist context > similar cache)
   const listId = typeof searchParams?.list === "string" ? String(searchParams.list).slice(0, 64) : undefined;
@@ -305,8 +350,10 @@ export default async function VideoPage({ params, searchParams }: { params: { id
       <div className="hidden lg:flex items-start justify-between gap-4 pt-2">
         <div>
           <h1 className="text-2xl font-extrabold leading-tight">{displayTitle}</h1>
-          <div className="mt-1 text-sm text-neutral-600">
-            {v.author?.name ?? "Anonymous"} • {v.viewCount} views • {v.likeCount} likes • {v.starCount} stars
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-neutral-600">
+            <span>{v.author?.name ?? "Anonymous"}</span>
+            {viewerFanClubLabel ? <Badge variant="secondary">⭐ {viewerFanClubLabel} Member</Badge> : null}
+            <span>• {v.viewCount} views • {v.likeCount} likes • {v.starCount} stars</span>
           </div>
           <div className="mt-2">
             <RealtimeViewersBadge videoId={v.id} />
@@ -329,6 +376,7 @@ export default async function VideoPage({ params, searchParams }: { params: { id
             disabled={!interactionsAllowed}
           />
           {viewerId ? <AddToPlaylistButton videoId={v.id} disabled={!interactionsAllowed} /> : null}
+          {viewerId ? <WatchLaterToggleForm videoId={v.id} active={watchLaterActive} disabled={false} /> : null}
           {viewerId && viewerId !== v.authorId && interactionsAllowed ? (
             <TipCreatorButton toUserId={v.authorId} />
           ) : null}
@@ -352,7 +400,9 @@ export default async function VideoPage({ params, searchParams }: { params: { id
               title={displayTitle}
               videoId={v.id}
               analytics={{ experimentId: assigned?.experiment.id ?? null, variantId: assigned?.variant.id ?? null }}
+              p2pEnabled={Boolean((site as any).playerP2PEnabled) && (v as any).access === "PUBLIC"}
               playerMode="standard"
+              candidates={hlsCandidates}
               storyboard={{
                 enabled: Boolean((site as any).storyboardEnabled),
                 url: resolveMediaUrl(v.storyboardKey),
@@ -365,12 +415,14 @@ export default async function VideoPage({ params, searchParams }: { params: { id
               }}
             />
           ) : (
-            <VideoPlayer
+            <VideoPlayerClient
               videoId={v.id}
               src={hlsUrl}
+              candidates={hlsCandidates}
               poster={poster}
               mode="standard"
               analytics={{ experimentId: assigned?.experiment.id ?? null, variantId: assigned?.variant.id ?? null }}
+              p2pEnabled={Boolean((site as any).playerP2PEnabled) && (v as any).access === "PUBLIC"}
               storyboard={{
                 enabled: Boolean((site as any).storyboardEnabled),
                 url: resolveMediaUrl(v.storyboardKey),
@@ -395,8 +447,10 @@ export default async function VideoPage({ params, searchParams }: { params: { id
       {/* Mobile (m.youtube.com-like): player -> title -> channel/stats -> action bar */}
       <div className="lg:hidden">
         <h1 className="mt-3 text-lg font-extrabold leading-tight">{displayTitle}</h1>
-        <div className="mt-1 text-xs text-neutral-600">
-          {v.author?.name ?? "Anonymous"} • {v.viewCount} views • {v.likeCount} likes • {v.starCount} stars
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
+          <span>{v.author?.name ?? "Anonymous"}</span>
+          {viewerFanClubLabel ? <Badge variant="secondary">⭐ {viewerFanClubLabel} Member</Badge> : null}
+          <span>• {v.viewCount} views • {v.likeCount} likes • {v.starCount} stars</span>
         </div>
         <div className="mt-2">
           <RealtimeViewersBadge videoId={v.id} />
@@ -419,6 +473,7 @@ export default async function VideoPage({ params, searchParams }: { params: { id
             initialGiftCount={v.giftCount}
             disabled={!interactionsAllowed}
           />
+          {viewerId ? <WatchLaterToggleForm videoId={v.id} active={watchLaterActive} disabled={false} /> : null}
           {viewerId ? <AddToPlaylistButton videoId={v.id} disabled={!interactionsAllowed} /> : null}
           {viewerId && viewerId !== v.authorId && interactionsAllowed ? (
             <TipCreatorButton toUserId={v.authorId} />

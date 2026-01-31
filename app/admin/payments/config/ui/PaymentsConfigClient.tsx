@@ -16,6 +16,14 @@ type PaymentConfig = {
   submittedStaleMinutes: number;
   reconcileEveryMs: number;
   allowlistJson: string;
+  // Growth / Monetization
+  seasonPassEnabled?: boolean;
+  seasonPassPriceStars?: number;
+
+  referralEnabled?: boolean;
+  referralPercent?: number;
+  referralApplyToTopups?: boolean;
+  referralApplyToEarnings?: boolean;
 };
 
 type SecretRow = {
@@ -156,6 +164,78 @@ export default function PaymentsConfigClient({
           <div className="flex gap-2">
             <Button onClick={saveConfig} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
             {msg ? <div className="text-sm text-muted-foreground self-center">{msg}</div> : null}
+          </div>
+        </CardContent>
+      </Card>
+
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Growth / Monetization</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-6">
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={Boolean(cfg.seasonPassEnabled)}
+                onCheckedChange={(v) => setCfg((p) => ({ ...p, seasonPassEnabled: Boolean(v) }))}
+              />
+              Season Pass enabled
+            </label>
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">Season Pass price (Stars) — 30 days</div>
+              <Input
+                type="number"
+                value={Number(cfg.seasonPassPriceStars || 300)}
+                onChange={(e) => setCfg((p) => ({ ...p, seasonPassPriceStars: Number(e.target.value || 0) }))}
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            <div className="text-sm font-semibold">Referral Stars</div>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={Boolean(cfg.referralEnabled)}
+                onCheckedChange={(v) => setCfg((p) => ({ ...p, referralEnabled: Boolean(v) }))}
+              />
+              Enable referral bonus (1–20%)
+            </label>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Percent (1–20)</div>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={Number(cfg.referralPercent || 5)}
+                  onChange={(e) => setCfg((p) => ({ ...p, referralPercent: Number(e.target.value || 0) }))}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm mt-6">
+                <Checkbox
+                  checked={cfg.referralApplyToTopups !== false}
+                  onCheckedChange={(v) => setCfg((p) => ({ ...p, referralApplyToTopups: Boolean(v) }))}
+                />
+                Apply to TOPUP credits
+              </label>
+              <label className="flex items-center gap-2 text-sm mt-6">
+                <Checkbox
+                  checked={cfg.referralApplyToEarnings !== false}
+                  onCheckedChange={(v) => setCfg((p) => ({ ...p, referralApplyToEarnings: Boolean(v) }))}
+                />
+                Apply to EARN credits (creator income)
+              </label>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              Ledger: type=REFERRAL_BONUS, discountReason=REFERRAL_&lt;pct&gt;PCT, dedupe by (sourceKind, sourceId).
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button onClick={saveConfig} disabled={saving}>{saving ? "Saving..." : "Save growth settings"}</Button>
           </div>
         </CardContent>
       </Card>
